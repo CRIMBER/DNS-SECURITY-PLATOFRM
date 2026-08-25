@@ -454,6 +454,15 @@ class EventRepository:
                 "WHERE event_type = 'dns' AND cache_hit = 1"
             ).fetchone()["n"]
 
+            since = (
+                datetime.now(timezone.utc) - timedelta(hours=recent_hours)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            activity_rows = connection.execute(
+                "SELECT ts_utc, decision FROM events "
+                "WHERE event_type = 'dns' AND ts_utc >= ? ORDER BY ts_utc",
+                (since,),
+            ).fetchall()
+
             gateway_times = [
                 r["total_gateway_time_ms"]
                 for r in connection.execute(
@@ -465,8 +474,18 @@ class EventRepository:
 
         p95 = gateway_times[int(len(gateway_times) * 0.95)] if gateway_times else 0.0
 
+        buckets: Dict[str, Dict[str, int]] = {}
+        for row in activity_rows:
+            hour = row["ts_utc"][:13] + ":00Z"
+            bucket = buckets.setdefault(hour, {"ALLOW": 0, "MONITOR": 0, "BLOCK": 0})
+            bucket[row["decision"]] = bucket.get(row["decision"], 0) + 1
+        activity = [
+            {"hour": hour, **counts} for hour, counts in sorted(buckets.items())
+        ]
+
         return {
             "total_dns_requests": total,
+            "activity": activity,
             "allowed": by_decision.get("ALLOW", 0),
             "monitored": by_decision.get("MONITOR", 0),
             "blocked": by_decision.get("BLOCK", 0),

@@ -104,11 +104,17 @@ short-circuit: other signals can still push the score higher.
 All detection policy lives in **`config/risk_config.json`**. No weight or
 threshold is hardcoded anywhere in the Python.
 
-| Signal | Weight |
-|---|---|
-| Threat intelligence | 0.40 |
-| DGA / suspicion | 0.35 |
-| Lexical analysis | 0.25 |
+| Signal | Weight | Abstains when… |
+|---|---|---|
+| Threat intelligence | 0.40 | the domain is in no dataset |
+| DGA / suspicion | 0.35 | (reduced confidence on a null finding) |
+| Lexical analysis | 0.25 | — always reports |
+| DNS tunnelling | 0.15 | the name has no subdomain, or no indicator fires |
+| Behavioural | 0.10 | the domain has too little history to judge |
+
+The first three keep the ratio they were approved with. Because the engine
+normalises by the weights that actually reported, adding the last two changed no
+existing result — they contribute only when they observe something.
 
 | Score | Classification | Decision |
 |---|---|---|
@@ -220,11 +226,16 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
   integration tests that bind real sockets and exchange real DNS packets
   (`backend/tests/test_scenarios.py`, `test_dns_integration.py`)
 
-### DNS gateway limitations (current, deliberate)
+### Limitations (current, deliberate)
 
-- **UDP only.** DNS over TCP is not implemented. Responses that exceed the UDP
-  payload size, and clients that retry over TCP, are not served.
 - **No DNSSEC validation.** Upstream responses are forwarded as received.
+- **Tunnelling and behavioural detection are heuristics**, labelled
+  `PROTOTYPE_HEURISTIC`, with no accuracy claim. The tunnelling detector is
+  tested against real infrastructure shapes (CloudFront, ELB, DKIM selectors,
+  ACME challenges) that it must *not* flag, but that is a false-positive check,
+  not an evaluation.
+- **Behavioural analysis reads only this system's own event history.** It has no
+  view of traffic that did not pass through the gateway.
 - **Analysis runs synchronously on the event loop.** ~3–8 ms of CPU per query.
   Fine at demo rates; the extension point is `run_in_executor`. No throughput
   figure is claimed because none has been measured.
@@ -284,6 +295,13 @@ becomes blocked is blocked on its very next query, because a blocked query never
 reaches the cache at all. A test asserts this by flipping the decision on a
 domain whose answer is already cached.
 
+**Both UDP and TCP are served.** A client that receives a truncated response is
+required to retry over TCP, and some start there. Only the framing differs —
+`tcp.py` contains no security logic and delegates to the same handler and
+policy. A test asserts both transports produce identical verdicts. TCP is
+best-effort: if it cannot bind, UDP keeps serving and the failure is reported
+through `/api/dns/status`.
+
 **The decision always precedes resolution.** There is exactly one call site for
 the upstream resolver, on the far side of the decision branch, so no code path
 can forward a query that was not analysed. Tests assert a blocked query produced
@@ -312,6 +330,35 @@ prototype stays useful without accumulating the network addresses of real users.
 
 The upstream resolver is read from settings in exactly one place, so no provider
 is hardcoded across the codebase.
+
+## Signals
+
+Five independent signals feed the risk engine. Each returns the same `Signal`
+object, so the engine knows nothing about how any of them work.
+
+| Signal | What it asks |
+|---|---|
+| Threat intelligence | Is this domain known to anyone? |
+| DGA / suspicion | Does this name look machine-generated? |
+| Lexical | Does the name have suspicious structure? |
+| DNS tunnelling | Is this query *carrying* something? |
+| Behavioural | How has this domain *behaved*? |
+
+The last two were added after the risk engine was finished, by writing one class
+each and adding one weight each. No change to the engine, the API contract or
+the dashboard — which is the extensibility claim, demonstrated rather than
+asserted.
+
+**Asymmetric confidence** is the rule that makes them composable: a detector
+that finds nothing reports `confidence 0.0` and is dropped from fusion entirely.
+"No tunnelling evidence" says nothing about phishing, so it must never dilute a
+signal that did find something.
+
+**One consequence worth understanding:** the trusted allowlist is *set aside* —
+both its score cap and its low-risk vote — when tunnelling or behavioural
+evidence is strong. An allowlist speaks to a domain's reputation, not to what is
+being carried through it. Without that, exfiltration through any allowlisted
+domain would be invisible by construction.
 
 ## Demonstration scenarios
 

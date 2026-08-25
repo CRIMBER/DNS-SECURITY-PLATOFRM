@@ -15,7 +15,12 @@
           <h1><span class="dot"></span>Adaptive DNS Security &amp; Threat Intelligence</h1>
           <p class="subtitle">Security operations console &mdash; analysis engine + DNS gateway</p>
         </div>
-        <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
+        <div class="head-actions">
+          <label class="toggle" title="Reload every 5 seconds">
+            <input type="checkbox" id="autoRefresh"> live
+          </label>
+          <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
+        </div>
       </div>
       <div class="status-line" id="statusLine">connecting to engine&hellip;</div>
       <nav class="tabs" id="tabs">
@@ -119,6 +124,11 @@
       <div class="panel">
         <h2>Blocked Domains <span class="muted">and why they were blocked</span></h2>
         <div id="dnsBlocked"></div>
+      </div>
+
+      <div class="panel">
+        <h2>DNS Activity Over Time</h2>
+        <div id="dnsActivityChart" class="chart"></div>
       </div>
 
       <div class="panel">

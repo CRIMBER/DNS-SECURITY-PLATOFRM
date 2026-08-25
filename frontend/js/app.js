@@ -465,6 +465,64 @@
     return p;
   }
 
+  function renderTunnel(result) {
+    var t = result.tunnel_analysis || {};
+    if (!t.indicators || !t.indicators.length) return null;
+
+    var p = panel("DNS Tunnelling Analysis");
+    p.appendChild(el("span", "badge badge-MALICIOUS",
+      t.indicators.length + " INDICATOR" + (t.indicators.length > 1 ? "S" : "")));
+
+    var dl = el("dl", "kv");
+    dl.style.marginTop = "15px";
+    function row(k, v) { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); }
+    var m = t.measurements || {};
+    row("Indicators", t.indicators.join(", "));
+    row("Subdomain length", m.subdomain_length);
+    row("Labels", m.subdomain_label_count);
+    row("Longest label", m.longest_label);
+    row("Subdomain entropy", m.subdomain_entropy);
+    if (m.encoding_alphabet) row("Encoding alphabet", m.encoding_alphabet);
+    if (m.query_type) row("Record type", m.query_type);
+    row("Signal score", t.score + " / 100");
+    row("Signal confidence", t.confidence);
+    p.appendChild(dl);
+    p.appendChild(el("div", "note",
+      "Transparent rule-based detector (" + t.model_type + "). Measures the "
+      + "query name for traces a covert channel leaves behind."));
+    return p;
+  }
+
+  function renderBehavioral(result) {
+    var b = result.behavioral_analysis || {};
+    var o = b.observations || {};
+    if (!o.history_available || !o.queries_in_window) return null;
+
+    var p = panel("Behavioural Analysis");
+    if (b.indicators && b.indicators.length) {
+      p.appendChild(el("span", "badge badge-MALICIOUS", b.indicators.join(", ").toUpperCase()));
+    } else {
+      p.appendChild(el("span", "badge badge-SAFE", "NO ANOMALIES"));
+    }
+
+    var dl = el("dl", "kv");
+    dl.style.marginTop = "15px";
+    function row(k, v) { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); }
+    row("Window", o.window_minutes + " minutes");
+    row("Queries seen", o.queries_in_window);
+    row("Distinct names", o.distinct_subdomains);
+    row("Failed lookups", o.nxdomain_responses);
+    if (o.nxdomain_ratio !== undefined) row("Failure ratio", o.nxdomain_ratio);
+    row("Blocked before", o.blocked_before);
+    row("Signal score", b.score + " / 100");
+    row("Signal confidence", b.confidence);
+    p.appendChild(dl);
+    p.appendChild(el("div", "note",
+      "Judged by what this domain has DONE, not what it is called. Abstains "
+      + "with confidence 0.00 until enough history exists to say anything."));
+    return p;
+  }
+
   var FEATURE_VIEW = [
     ["length", "length"], ["entropy", "entropy"], ["sld_entropy", "label entropy"],
     ["digit_ratio", "digit ratio"], ["hyphen_count", "hyphens"],
@@ -527,6 +585,10 @@
         host.appendChild(renderSignals(result));
         host.appendChild(renderIntel(result));
         host.appendChild(renderDGA(result));
+        var tunnelPanel = renderTunnel(result);
+        if (tunnelPanel) host.appendChild(tunnelPanel);
+        var behavioralPanel = renderBehavioral(result);
+        if (behavioralPanel) host.appendChild(behavioralPanel);
         host.appendChild(renderFeatures(result));
         loadStats();     // the event this created is now part of the numbers
       })
@@ -578,6 +640,31 @@
     loadStats();
     loadEvents();
     if (window.DNSView) window.DNSView.load();
+  });
+
+  /* Live mode: poll the backend every few seconds. Off by default, because a
+     dashboard that silently refetches makes it hard to read a result. */
+  var liveTimer = null;
+
+  function refreshCurrentView() {
+    var active = document.querySelector(".tab.active");
+    var name = active ? active.getAttribute("data-tab") : "overview";
+    if (name === "overview" || name === "analytics") loadStats();
+    if (name === "activity") loadEvents();
+    if (name === "dns" && window.DNSView) window.DNSView.load();
+  }
+
+  $("autoRefresh").addEventListener("change", function (event) {
+    var label = event.target.closest(".toggle");
+    if (event.target.checked) {
+      label.classList.add("live-on");
+      refreshCurrentView();
+      liveTimer = window.setInterval(refreshCurrentView, 5000);
+    } else {
+      label.classList.remove("live-on");
+      if (liveTimer) window.clearInterval(liveTimer);
+      liveTimer = null;
+    }
   });
 
   $("clearBtn").addEventListener("click", function () {

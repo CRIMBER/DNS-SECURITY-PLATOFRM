@@ -334,4 +334,8 @@ class DNSStatsResponse(BaseModel):
     by_query_type: Dict[str, int]
     by_response_code: Dict[str, int]
     blocked_domains: List[Dict[str, Any]]
+    activity: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="DNS requests bucketed by hour, split by decision.",
+    )
     performance: Dict[str, Any]

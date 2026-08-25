@@ -122,6 +122,23 @@
     });
   }
 
+  function renderActivity(stats) {
+    var buckets = (stats.activity || []).map(function (row) {
+      return {
+        label: (row.hour || "").slice(11, 16),
+        segments: [
+          { key: "allowed", value: row.ALLOW || 0, color: "var(--safe)" },
+          { key: "monitored", value: row.MONITOR || 0, color: "var(--warning)" },
+          { key: "blocked", value: row.BLOCK || 0, color: "var(--critical)" }
+        ]
+      };
+    });
+    Charts.stackedColumns($("dnsActivityChart"), buckets, {
+      legend: U.STATUS_LEGEND,
+      emptyMessage: "No DNS activity in the last 24 hours."
+    });
+  }
+
   function renderBlocked(stats) {
     var host = $("dnsBlocked");
     host.innerHTML = "";
@@ -189,9 +206,10 @@
     ["Time", "Domain", "Type", "Risk", "Decision", "Response", "Upstream", "Latency"]
       .forEach(function (h) { head.appendChild(el("th", null, h)); });
     table.appendChild(head);
+    $("dnsEventCount").textContent += "  ·  click a row for the reasoning";
 
     data.events.forEach(function (event) {
-      var tr = el("tr");
+      var tr = el("tr", "expandable");
       tr.appendChild(el("td", "mono", U.shortTime(event.timestamp)));
       tr.appendChild(el("td", "mono", event.domain));
       tr.appendChild(el("td", "mono", event.query_type || "-"));
@@ -211,9 +229,60 @@
         event.total_gateway_time_ms != null
           ? event.total_gateway_time_ms.toFixed(2) + " ms" : "-"));
       table.appendChild(tr);
+
+      // A click reveals why the gateway decided what it decided.
+      var detail = el("tr", "detail-row hidden");
+      var cell = el("td");
+      cell.setAttribute("colspan", "8");
+      cell.appendChild(buildDetail(event));
+      detail.appendChild(cell);
+      table.appendChild(detail);
+
+      tr.addEventListener("click", function () {
+        detail.classList.toggle("hidden");
+      });
     });
     wrap.appendChild(table);
     host.appendChild(wrap);
+  }
+
+  function buildDetail(event) {
+    var box = el("div");
+    var grid = el("div", "detail-grid");
+
+    function pair(key, value) {
+      var line = el("div");
+      line.appendChild(el("b", null, key + ": "));
+      line.appendChild(document.createTextNode(value));
+      grid.appendChild(line);
+    }
+    pair("threat intel", event.threat_intelligence_verdict);
+    if (event.matched_indicator) pair("indicator", event.matched_indicator);
+    pair("DGA suspicion", event.dga_score);
+    pair("lexical", event.lexical_score);
+    pair("confidence", event.confidence);
+    pair("analysis", (event.analysis_time_ms || 0).toFixed(2) + " ms");
+    if (event.dns_upstream_time_ms) {
+      pair("upstream", event.dns_upstream_time_ms.toFixed(2) + " ms");
+    }
+    if (event.block_policy) pair("block policy", event.block_policy);
+    if (event.client_address) pair("client", event.client_address);
+    if (event.overrides_applied && event.overrides_applied.length) {
+      pair("overrides", event.overrides_applied.join(", "));
+    }
+    box.appendChild(grid);
+
+    if (event.top_factors && event.top_factors.length) {
+      var factors = el("div", "detail-factors");
+      factors.appendChild(el("b", null, "Why:"));
+      event.top_factors.forEach(function (factor) {
+        var line = el("div", "sev-" + factor.severity);
+        line.textContent = "+" + factor.contribution.toFixed(1) + "  " + factor.label;
+        factors.appendChild(line);
+      });
+      box.appendChild(factors);
+    }
+    return box;
   }
 
   function load() {
@@ -225,6 +294,7 @@
       renderTiles(r.data);
       renderCharts(r.data);
       renderBlocked(r.data);
+      renderActivity(r.data);
       renderPerformance(r.data);
     });
     U.request("/api/dns/events?limit=100").then(function (r) {

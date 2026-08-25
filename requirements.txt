@@ -3,3 +3,8 @@
 fastapi>=0.110,<1.0
 uvicorn>=0.27,<1.0
 pydantic>=2.6,<3.0
+
+# phase 2: DNS message parsing and construction for the gateway.
+# Wire-format DNS has name compression, EDNS0 and a dozen RDATA encodings;
+# a hand-rolled parser is the thing that breaks on a judge's query.
+dnspython>=2.6,<3.0

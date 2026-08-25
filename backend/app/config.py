@@ -26,6 +26,13 @@ def _env(name: str, default: str) -> str:
     return value if value not in (None, "") else default
 
 
+def _flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass
 class Settings:
     """Deployment configuration, overridable by environment variable."""
@@ -39,6 +46,28 @@ class Settings:
     frontend_dir: Path = PROJECT_ROOT / "frontend"
     log_level: str = "info"
 
+    # -- DNS gateway (phase 2) ---------------------------------------------
+    # The gateway binds a non-privileged port by default so no administrator
+    # rights are needed. The upstream resolver is referenced from here and
+    # nowhere else, so no provider is hardcoded through the codebase.
+    dns_enabled: bool = True
+    dns_listen_host: str = "127.0.0.1"
+    dns_listen_port: int = 5353
+    upstream_dns_host: str = "1.1.1.1"
+    upstream_dns_port: int = 53
+    dns_upstream_timeout: float = 3.0
+    dns_block_mode: str = "NXDOMAIN"
+    dns_cache_enabled: bool = True
+    dns_cache_max_entries: int = 2000
+    dns_cache_max_ttl: int = 300
+    dns_log_client_ip: str = "loopback_only"
+    """none | loopback_only | always.
+
+    Defaults to recording the client address only when it is a loopback
+    address, so a local prototype stays useful without storing the network
+    addresses of real users.
+    """
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
@@ -50,7 +79,26 @@ class Settings:
             ),
             frontend_dir=Path(_env("DNSSEC_FRONTEND_DIR", str(PROJECT_ROOT / "frontend"))),
             log_level=_env("DNSSEC_LOG_LEVEL", "info"),
+            dns_enabled=_flag("DNS_ENABLED", True),
+            dns_listen_host=_env("DNS_LISTEN_HOST", "127.0.0.1"),
+            dns_listen_port=int(_env("DNS_LISTEN_PORT", "5353")),
+            upstream_dns_host=_env("UPSTREAM_DNS_HOST", "1.1.1.1"),
+            upstream_dns_port=int(_env("UPSTREAM_DNS_PORT", "53")),
+            dns_upstream_timeout=float(_env("DNS_UPSTREAM_TIMEOUT", "3.0")),
+            dns_block_mode=_env("DNS_BLOCK_MODE", "NXDOMAIN").upper(),
+            dns_cache_enabled=_flag("DNS_CACHE_ENABLED", True),
+            dns_cache_max_entries=int(_env("DNS_CACHE_MAX_ENTRIES", "2000")),
+            dns_cache_max_ttl=int(_env("DNS_CACHE_MAX_TTL", "300")),
+            dns_log_client_ip=_env("DNS_LOG_CLIENT_IP", "loopback_only").lower(),
         )
+
+    @property
+    def dns_listen_address(self) -> str:
+        return "{}:{}".format(self.dns_listen_host, self.dns_listen_port)
+
+    @property
+    def upstream_address(self) -> str:
+        return "{}:{}".format(self.upstream_dns_host, self.upstream_dns_port)
 
 
 class RiskConfig:

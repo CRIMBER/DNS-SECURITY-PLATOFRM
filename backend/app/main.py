@@ -5,6 +5,7 @@ One process serves both the JSON API under ``/api`` and the static dashboard at
 the demo, which matters more than architectural purity at this size.
 """
 
+import contextlib
 import logging
 import traceback
 
@@ -16,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from .api import routes
 from .config import get_risk_config, get_settings
 from .core.normalizer import DomainValidationError
+from .dns_gateway import build_gateway, get_gateway, set_gateway
+from .dns_gateway.server import DNSGatewayBindError
 from .storage.db import init_db
 
 logger = logging.getLogger("dnssec")
@@ -24,6 +27,41 @@ logger = logging.getLogger("dnssec")
 def _error(status: int, code: str, message: str, detail: str = None) -> JSONResponse:
     body = {"error": {"code": code, "message": message, "detail": detail}}
     return JSONResponse(status_code=status, content=body)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start and stop the DNS gateway alongside the HTTP API.
+
+    The UDP socket is bound HERE and never in ``create_app()``. The module
+    creates an app at import time, and the test suite builds two more, so
+    binding in the factory would collide on the listen port immediately.
+    Tests construct ``TestClient(create_app())`` without entering it as a
+    context manager, so this never runs for them.
+
+    A bind failure is logged and surfaced through /api/dns/status; it does not
+    take the HTTP API down, and the status endpoint reports the gateway as not
+    running rather than pretending otherwise.
+    """
+    settings = get_settings()
+
+    if settings.dns_enabled:
+        gateway = build_gateway(settings)
+        try:
+            await gateway.start()
+            set_gateway(gateway)
+        except DNSGatewayBindError:
+            set_gateway(gateway)   # retains bind_error for the status endpoint
+    else:
+        logger.info("DNS gateway disabled (DNS_ENABLED=false)")
+
+    try:
+        yield
+    finally:
+        gateway = get_gateway()
+        if gateway is not None:
+            await gateway.stop()
+            set_gateway(None)
 
 
 def create_app() -> FastAPI:

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..config import load_json_data, load_wordlist
+from .classification import SEMANTIC_TEXT, NameClassification, NameKind
 from .normalizer import NormalizedDomain
 
 VOWELS = frozenset("aeiou")
@@ -202,6 +203,31 @@ class DomainFeatures:
     brand_target: Optional[str] = None
     brand_match_type: Optional[str] = None
 
+    classification: Optional[NameClassification] = None
+    """What kind of name this is, and the span each detector should read.
+
+    Carried through from the normalizer. Before this existed the classifier's
+    answer stopped at this boundary and every detector re-derived domain
+    semantics from ``sld``/``subdomain``, each making the same wrong
+    assumption: that the label below the public suffix is always a
+    registrant-chosen brand name.
+    """
+
+    def scope(self, key: str) -> str:
+        """The span ``key`` names, or '' when this name has no such span.
+
+        Detectors call this instead of reaching for ``sld`` or ``subdomain``
+        directly. An empty span means the detector should abstain - it is not
+        a zero-length name to score.
+        """
+        if self.classification is None:
+            return ""
+        return self.classification.scope(key)
+
+    @property
+    def name_kind(self) -> Optional[NameKind]:
+        return self.classification.kind if self.classification else None
+
     def to_dict(self) -> Dict[str, Any]:
         """API-facing view: rounded floats, no internal-only fields."""
         return {
@@ -232,6 +258,9 @@ class DomainFeatures:
             "suspicious_keywords": self.suspicious_keywords,
             "brand_impersonation": self.brand_impersonation,
             "brand_target": self.brand_target,
+            "name_classification": (
+                self.classification.to_dict() if self.classification else None
+            ),
         }
 
 
@@ -315,12 +344,18 @@ def extract_features(nd: NormalizedDomain) -> DomainFeatures:
     classified = len(alpha_chars) + digit_count + hyphen_count
     other_ratio = max(0.0, 1.0 - classified / total)
 
-    # Keywords are matched against the domain *below* its public suffix, so
-    # subdomains are still covered (`secure-login.evil.test`) while a suffix
-    # like `gov.in` or `co.in` can never itself trigger a keyword hit.
-    keyword_scope = nd.domain
-    if nd.public_suffix and keyword_scope.endswith("." + nd.public_suffix):
-        keyword_scope = keyword_scope[: -(len(nd.public_suffix) + 1)]
+    # Keywords are matched against SEMANTIC_TEXT: the part of the name below
+    # its public suffix, in the form a human reads. Subdomains are covered
+    # (`secure-login.evil.test`), a suffix like `gov.in` can never itself
+    # trigger a hit, and an internationalised name is matched on its decoded
+    # Unicode rather than on `xn--...`, which never matches anything.
+    keyword_scope = ""
+    if nd.classification is not None:
+        keyword_scope = nd.classification.scope(SEMANTIC_TEXT)
+    if not keyword_scope:
+        keyword_scope = nd.domain
+        if nd.public_suffix and keyword_scope.endswith("." + nd.public_suffix):
+            keyword_scope = keyword_scope[: -(len(nd.public_suffix) + 1)]
     found_keywords = [kw for kw in SUSPICIOUS_KEYWORDS if kw in keyword_scope]
     # Drop keywords fully contained in a longer match, e.g. keep "signin" only.
     found_keywords = [
@@ -335,6 +370,7 @@ def extract_features(nd: NormalizedDomain) -> DomainFeatures:
     brand = _detect_brand_impersonation(nd)
 
     return DomainFeatures(
+        classification=nd.classification,
         domain=nd.domain,
         registrable_domain=nd.registrable_domain,
         sld=sld,

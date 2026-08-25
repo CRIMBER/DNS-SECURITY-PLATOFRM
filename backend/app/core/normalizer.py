@@ -17,7 +17,14 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from urllib.parse import urlsplit
 
-from ..config import load_json_data
+from .classification import (
+    MULTI_LABEL_SUFFIXES,
+    NameClassification,
+    NameKind,
+    classify,
+    classify_ip_literal,
+    public_suffix_of,
+)
 
 # RFC 1035 limits.
 MAX_DOMAIN_LENGTH = 253
@@ -27,9 +34,6 @@ MAX_RAW_INPUT_LENGTH = 2048
 
 _LABEL_RE = re.compile(r"^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$")
 _ALL_NUMERIC_RE = re.compile(r"^[0-9]+$")
-
-_SUFFIX_DATA = load_json_data("core", "data", "public_suffixes.json")
-MULTI_LABEL_SUFFIXES = frozenset(_SUFFIX_DATA.get("multi_label_suffixes", []))
 
 
 class DomainValidationError(ValueError):
@@ -66,6 +70,14 @@ class NormalizedDomain:
     has_underscore: bool = False
     was_url: bool = False
     """True if the operator pasted a full URL and we extracted the host."""
+
+    classification: Optional[NameClassification] = None
+    """What kind of name this is and which span each detector should read.
+
+    Authoritative: detectors consume this instead of inferring domain
+    semantics from ``sld``/``subdomain`` themselves. See
+    ``core/classification.py`` for why that distinction matters.
+    """
 
 
 def _extract_host(raw: str) -> "tuple":
@@ -129,16 +141,12 @@ def _to_ascii(host: str) -> "tuple":
 
 
 def _public_suffix(labels: List[str]) -> str:
-    """Longest matching public suffix, falling back to the final label."""
-    if len(labels) >= 3:
-        candidate = ".".join(labels[-3:])
-        if candidate in MULTI_LABEL_SUFFIXES:
-            return candidate
-    if len(labels) >= 2:
-        candidate = ".".join(labels[-2:])
-        if candidate in MULTI_LABEL_SUFFIXES:
-            return candidate
-    return labels[-1]
+    """Longest matching public suffix, falling back to the final label.
+
+    Kept as a thin alias: the suffix tables now live with the classifier,
+    because which SECTION a suffix came from is what callers actually need.
+    """
+    return public_suffix_of(labels)
 
 
 def normalize(raw: Optional[str]) -> NormalizedDomain:
@@ -177,6 +185,7 @@ def normalize(raw: Optional[str]) -> NormalizedDomain:
             public_suffix="",
             is_ip_literal=True,
             was_url=was_url,
+            classification=classify_ip_literal(host),
         )
     except ValueError:
         pass
@@ -244,4 +253,5 @@ def normalize(raw: Optional[str]) -> NormalizedDomain:
         is_single_label=is_single_label,
         has_underscore="_" in host,
         was_url=was_url,
+        classification=classify(host, labels, is_punycode),
     )

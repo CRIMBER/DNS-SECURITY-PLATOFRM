@@ -56,6 +56,7 @@ class Settings:
     upstream_dns_host: str = "1.1.1.1"
     upstream_dns_port: int = 53
     dns_upstream_timeout: float = 3.0
+    dns_tcp_enabled: bool = True
     dns_block_mode: str = "NXDOMAIN"
     dns_cache_enabled: bool = True
     dns_cache_max_entries: int = 2000
@@ -85,6 +86,7 @@ class Settings:
             upstream_dns_host=_env("UPSTREAM_DNS_HOST", "1.1.1.1"),
             upstream_dns_port=int(_env("UPSTREAM_DNS_PORT", "53")),
             dns_upstream_timeout=float(_env("DNS_UPSTREAM_TIMEOUT", "3.0")),
+            dns_tcp_enabled=_flag("DNS_TCP_ENABLED", True),
             dns_block_mode=_env("DNS_BLOCK_MODE", "NXDOMAIN").upper(),
             dns_cache_enabled=_flag("DNS_CACHE_ENABLED", True),
             dns_cache_max_entries=int(_env("DNS_CACHE_MAX_ENTRIES", "2000")),

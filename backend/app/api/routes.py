@@ -347,7 +347,7 @@ def _dns_gateway_health() -> dict:
     return {
         "status": "ok",
         "listen_address": gateway.listen_address,
-        "protocol": "udp",
+        "protocol": gateway.status()["protocol"],
         "upstream": gateway.handler.resolver.describe()["address"],
         "block_policy": gateway.handler.policy.name,
         "queries_received": gateway.stats.queries_received,
@@ -379,6 +379,7 @@ async def dns_status() -> DNSStatusResponse:
         running=status["running"],
         listen_address=status["listen_address"],
         protocol=status["protocol"],
+        tcp=status.get("tcp", {}),
         bind_error=status["bind_error"],
         upstream=status["upstream"],
         block_policy=status["block_policy"],

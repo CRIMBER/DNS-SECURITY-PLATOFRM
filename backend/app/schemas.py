@@ -301,7 +301,15 @@ class DNSStatusResponse(BaseModel):
         "with a bind_error means it was configured but could not start."
     )
     listen_address: Optional[str] = None
-    protocol: str = "udp"
+    protocol: str = Field(
+        default="udp",
+        description="Transports actually serving right now, e.g. 'udp+tcp'.",
+    )
+    tcp: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="DNS-over-TCP listener state. TCP is best-effort: if it "
+        "cannot bind, UDP keeps serving and the error is reported here.",
+    )
     bind_error: Optional[str] = None
     upstream: Optional[Dict[str, Any]] = None
     block_policy: Optional[str] = None

@@ -22,12 +22,14 @@ from .resolver import (
     UpstreamResolver,
 )
 from .server import DNSGateway, DNSGatewayBindError
+from .tcp import DNSTCPServer
 
 __all__ = [
     "DNSCache",
     "DNSContext",
     "DNSGateway",
     "DNSGatewayBindError",
+    "DNSTCPServer",
     "DNSRequestHandler",
     "GatewayStats",
     "BlockPolicy",
@@ -93,6 +95,7 @@ def build_gateway(
         handler=handler,
         host=settings.dns_listen_host if host is None else host,
         port=settings.dns_listen_port if port is None else port,
+        tcp_enabled=settings.dns_tcp_enabled,
     )
     gateway.stats = stats
     handler.stats = stats

@@ -424,3 +424,103 @@ class TestMeasurementAndPrivacy:
             assert repo.list_events(event_type="dns")["total"] == 1
             assert repo.list_events(event_type="analysis")["total"] == 1
             assert repo.list_events()["total"] == 2
+
+
+# -- 11. DNS over TCP --------------------------------------------------------
+
+
+class TestDNSOverTCP:
+    """TCP is not optional in practice: a client that receives a truncated
+    response is required to retry over TCP, and some clients start there. The
+    framing differs; the security policy does not."""
+
+    @staticmethod
+    def tcp_query(host, port, name, rdtype="A", timeout=5.0):
+        """A real TCP DNS client: 2-byte length prefix, then the message."""
+        request = dns.message.make_query(name, dns.rdatatype.from_text(rdtype))
+        payload = request.to_wire()
+
+        sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            sock.sendall(len(payload).to_bytes(2, "big") + payload)
+            header = sock.recv(2)
+            if len(header) < 2:
+                raise AssertionError("no length prefix in TCP response")
+            length = int.from_bytes(header, "big")
+            body = b""
+            while len(body) < length:
+                chunk = sock.recv(length - len(body))
+                if not chunk:
+                    break
+                body += chunk
+            return dns.message.from_wire(body)
+        finally:
+            sock.close()
+
+    def test_allowed_query_resolves_over_tcp(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            assert gateway.tcp is not None and gateway.tcp.running
+            response = self.tcp_query(gateway.host, gateway.port, "github.com")
+            assert response.rcode() == dns.rcode.NOERROR
+            assert len(response.answer) == 1
+            assert resolver.call_count == 1
+
+    def test_blocked_query_is_blocked_over_tcp_too(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            response = self.tcp_query(
+                gateway.host, gateway.port, "malware-c2-panel.test"
+            )
+            assert response.rcode() == dns.rcode.NXDOMAIN
+            assert resolver.call_count == 0, "blocked means no upstream, on any transport"
+
+    def test_same_policy_on_both_transports(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            over_udp = client.query("kq3v9z7jx1p8w.info", "A")
+            over_tcp = self.tcp_query(gateway.host, gateway.port, "kq3v9z7jx1p8w.info")
+            assert over_udp.rcode() == over_tcp.rcode() == dns.rcode.NXDOMAIN
+
+    def test_multiple_queries_on_one_connection(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            request = dns.message.make_query("github.com", dns.rdatatype.A).to_wire()
+            sock = socket.create_connection((gateway.host, gateway.port), timeout=5)
+            try:
+                answered = 0
+                for _ in range(3):
+                    sock.sendall(len(request).to_bytes(2, "big") + request)
+                    header = sock.recv(2)
+                    length = int.from_bytes(header, "big")
+                    body = b""
+                    while len(body) < length:
+                        body += sock.recv(length - len(body))
+                    assert dns.message.from_wire(body).rcode() == dns.rcode.NOERROR
+                    answered += 1
+                assert answered == 3
+            finally:
+                sock.close()
+
+    def test_bogus_length_prefix_does_not_crash(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            sock = socket.create_connection((gateway.host, gateway.port), timeout=5)
+            try:
+                sock.sendall((60000).to_bytes(2, "big") + b"\x00\x01")
+            except OSError:
+                pass
+            finally:
+                sock.close()
+            # Still serving on both transports.
+            assert client.query("github.com", "A").rcode() == dns.rcode.NOERROR
+            assert self.tcp_query(
+                gateway.host, gateway.port, "github.com"
+            ).rcode() == dns.rcode.NOERROR
+
+    def test_immediate_disconnect_is_survived(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            socket.create_connection((gateway.host, gateway.port), timeout=5).close()
+            assert client.query("github.com", "A").rcode() == dns.rcode.NOERROR
+
+    def test_tcp_events_are_logged_like_udp(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            self.tcp_query(gateway.host, gateway.port, "ransom-payment-portal.test")
+            event = repo.list_events(event_type="dns")["events"][0]
+            assert event["domain"] == "ransom-payment-portal.test"
+            assert event["blocked"] is True

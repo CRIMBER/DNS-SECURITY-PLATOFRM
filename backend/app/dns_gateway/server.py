@@ -4,9 +4,8 @@ An ``asyncio`` datagram endpoint that receives real DNS packets and hands each
 one to the request handler. The server owns the socket and the process-level
 counters; it knows nothing about security policy.
 
-Scope for this phase: **UDP only**. DNS over TCP (used for zone transfers and
-for responses that exceed the UDP payload size) is a declared extension point,
-not a silent omission - see ``README.md``.
+Both UDP and TCP are served. They share one handler, one analysis pipeline and
+one policy; only the framing differs (see ``tcp.py``).
 """
 
 import asyncio
@@ -15,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from .models import GatewayStats
+from .tcp import DNSTCPServer
 
 logger = logging.getLogger("dnssec.gateway")
 
@@ -63,7 +63,9 @@ class DNSGatewayBindError(RuntimeError):
 class DNSGateway:
     """Owns the listening socket and the gateway's lifecycle."""
 
-    def __init__(self, handler, host: str, port: int) -> None:
+    def __init__(
+        self, handler, host: str, port: int, tcp_enabled: bool = True
+    ) -> None:
         self.handler = handler
         self.host = host
         self.port = port
@@ -71,6 +73,8 @@ class DNSGateway:
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.protocol: Optional[DNSServerProtocol] = None
         self.bind_error: Optional[str] = None
+        self.tcp_enabled = tcp_enabled
+        self.tcp: Optional[DNSTCPServer] = None
 
     @property
     def running(self) -> bool:
@@ -114,7 +118,23 @@ class DNSGateway:
             self.host, self.port = bound[0], bound[1]
         logger.info("DNS gateway listening on %s/udp", self.listen_address)
 
+        # TCP is best-effort: a client that cannot use it still gets UDP, so a
+        # TCP bind failure must not take the gateway down. It is reported
+        # through status() rather than swallowed.
+        if self.tcp_enabled:
+            self.tcp = DNSTCPServer(self, self.host, self.port)
+            try:
+                await self.tcp.start()
+            except OSError:
+                logger.warning(
+                    "UDP is serving but TCP could not bind; truncated-response "
+                    "retries and TCP-only clients will not be handled."
+                )
+
     async def stop(self) -> None:
+        if self.tcp is not None:
+            await self.tcp.stop()
+            self.tcp = None
         if self.transport is not None:
             self.transport.close()
             self.transport = None
@@ -123,10 +143,22 @@ class DNSGateway:
 
     def status(self) -> dict:
         """Everything the dashboard needs to describe the gateway honestly."""
+        protocols = []
+        if self.running:
+            protocols.append("udp")
+        if self.tcp is not None and self.tcp.running:
+            protocols.append("tcp")
+
         return {
             "running": self.running,
             "listen_address": self.listen_address if self.running else None,
-            "protocol": "udp",
+            "protocol": "+".join(protocols) if protocols else "none",
+            "tcp": {
+                "enabled": self.tcp_enabled,
+                "running": bool(self.tcp and self.tcp.running),
+                "connections": self.tcp.connections if self.tcp else 0,
+                "bind_error": self.tcp.bind_error if self.tcp else None,
+            },
             "bind_error": self.bind_error,
             "upstream": self.handler.resolver.describe() if self.handler else None,
             "block_policy": self.handler.policy.name if self.handler else None,

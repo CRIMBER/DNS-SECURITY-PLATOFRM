@@ -487,9 +487,12 @@
     row("Signal score", t.score + " / 100");
     row("Signal confidence", t.confidence);
     p.appendChild(dl);
+    // The API field is method_type, not model_type - reading the wrong name
+    // rendered the provenance label as "undefined", which is precisely the
+    // claim this note exists to keep honest.
     p.appendChild(el("div", "note",
-      "Transparent rule-based detector (" + t.model_type + "). Measures the "
-      + "query name for traces a covert channel leaves behind."));
+      "Transparent rule-based detector (" + t.method + " / " + t.method_type
+      + "). Measures the query name for traces a covert channel leaves behind."));
     return p;
   }
 
@@ -518,8 +521,9 @@
     row("Signal confidence", b.confidence);
     p.appendChild(dl);
     p.appendChild(el("div", "note",
-      "Judged by what this domain has DONE, not what it is called. Abstains "
-      + "with confidence 0.00 until enough history exists to say anything."));
+      "Judged by what this domain has DONE, not what it is called (" + b.method
+      + " / " + b.method_type + "). Abstains with confidence 0.00 until enough "
+      + "history exists to say anything."));
     return p;
   }
 

@@ -34,7 +34,8 @@
       "confidence_short": 0.55,
       "confidence_very_short": 0.3,
       "shrinkage_length": 10.0,
-      "null_finding_confidence_factor": 0.45
+      "null_finding_confidence": 0.0,
+      "_null_finding_comment": "A DGA score below factor_thresholds.moderate is a NULL FINDING: the model found no algorithmic generation. That is an absence of evidence, not evidence of safety, so the signal abstains (confidence 0.0) and drops out of the weighted average entirely - the same rule already applied to a threat_intel UNKNOWN verdict and a clean lexical result. It previously only reduced confidence, which was insufficient: confidence is a relative weight, so a lone reporting signal sets the score regardless of how little it claims to know."
     },
     "factor_thresholds": {
       "high": 0.8,

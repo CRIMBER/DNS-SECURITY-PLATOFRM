@@ -87,8 +87,12 @@ class TestLengthShrinkage:
             assert suspicion(detector, domain) < 0.6, domain
 
     def test_short_labels_report_lower_confidence(self, detector):
-        short = detector.analyse(extract_features(normalize("bbc.co.uk")))
-        long = detector.analyse(extract_features(normalize("stackoverflow.com")))
+        # Both labels must be POSITIVE findings, otherwise both abstain at 0.0
+        # and the comparison proves nothing. Holding the finding constant
+        # leaves label length as the only variable, which is what this asserts.
+        short = detector.analyse(extract_features(normalize("xkzqm.top")))
+        long = detector.analyse(extract_features(normalize("xkzqmwvbtrnpks.top")))
+        assert short.score >= 0.5 and long.score >= 0.5, "both must report"
         assert short.confidence < long.confidence
 
 
@@ -184,3 +188,49 @@ class TestKnownBlindSpot:
         visible; closing it needs a different class of model."""
         assert suspicion(detector, "summerbridge.com") < 0.5
         assert suspicion(detector, "windowmarket.net") < 0.5
+
+
+class TestNullFindingAbstains:
+    """ABSENCE OF ANOMALY IS NOT EVIDENCE OF SAFETY.
+
+    A DGA score below the 'moderate' threshold means the model found no
+    algorithmic generation. That says nothing about phishing, tunnelling or
+    behaviour, so the signal must drop out of the weighted average rather than
+    vote a low score against evidence another signal did find.
+    """
+
+    def test_positive_finding_contributes_normally(self, detector):
+        """The asymmetry must not mute real detections."""
+        for domain in DGA_LIKE:
+            result = detector.analyse(extract_features(normalize(domain)))
+            assert result.score >= 0.5, domain
+            assert result.confidence > 0.0, domain
+            signal = dga_to_signal(result, get_risk_config())
+            assert signal.is_informative, domain
+            assert signal.confidence > 0.0, domain
+
+    def test_null_finding_abstains(self, detector):
+        """A clean label reports confidence 0.0, not a confident zero."""
+        for domain in LEGITIMATE:
+            result = detector.analyse(extract_features(normalize(domain)))
+            assert result.score < 0.5, domain
+            assert result.confidence == 0.0, domain
+            signal = dga_to_signal(result, get_risk_config())
+            assert not signal.is_informative, domain
+
+    def test_abstention_is_driven_by_the_score_not_the_label(self, detector):
+        """The boundary is the configured threshold, nothing else."""
+        moderate = float(get_risk_config().get("dga.factor_thresholds.moderate", 0.5))
+        for domain in LEGITIMATE + DGA_LIKE:
+            result = detector.analyse(extract_features(normalize(domain)))
+            abstained = result.confidence == 0.0
+            assert abstained == (result.score < moderate), domain
+
+    def test_null_finding_still_explains_itself(self, detector):
+        """Abstaining is not the same as being silent."""
+        signal = dga_to_signal(
+            detector.analyse(extract_features(normalize("github.com"))),
+            get_risk_config(),
+        )
+        assert signal.factors, "an abstaining signal must still say why"
+        assert signal.factors[0].contribution == 0.0

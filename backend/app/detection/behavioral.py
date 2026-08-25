@@ -81,11 +81,20 @@ class HistoryBehavioralAnalyzer(BehavioralAnalyzer):
 
     @property
     def repository(self):
-        if self._repository is None:
-            from ..storage.events import get_event_repository
+        # Resolved on every access rather than memoised. The analyser is a
+        # process-wide singleton, so caching the repository on first use meant
+        # a later set_event_repository() was silently ignored and this analyser
+        # kept reading a database nothing was writing to any more - it would
+        # report "no history" forever, with no error to notice.
+        #
+        # An explicitly injected repository still wins, which is the seam tests
+        # and future callers use.
+        if self._repository is not None:
+            return self._repository
 
-            self._repository = get_event_repository()
-        return self._repository
+        from ..storage.events import get_event_repository
+
+        return get_event_repository()
 
     def analyse(
         self, features: DomainFeatures, config: Optional[RiskConfig] = None

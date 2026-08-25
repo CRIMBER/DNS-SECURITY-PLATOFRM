@@ -167,3 +167,89 @@ class TestEndToEndContract:
         analyse(client, "some-new-unseen-domain.com")
         after = client.get("/api/stats").json()["total_analyzed"]
         assert after == before + 1
+
+
+class TestAsymmetricSignalsEndToEnd:
+    """Every signal abstains on a null finding; none votes for safety.
+
+    These run through the real API against the real pipeline, so they pin the
+    behaviour users and the dashboard actually see - not just the unit-level
+    contract of one detector.
+    """
+
+    def test_no_signal_votes_for_safety(self, client):
+        """A clean, unknown domain leaves every null signal out of fusion."""
+        result = analyse(client, "waterline.com")
+        by_name = {s["name"]: s for s in result["signals"]}
+        for name in ("threat_intel", "dga", "lexical", "tunnel", "behavioral"):
+            signal = by_name[name]
+            if signal["score"] == 0.0 or (name == "dga" and signal["score"] < 50):
+                assert signal["confidence"] == 0.0, name
+                assert signal["used_in_fusion"] is False, name
+                assert signal["weighted_contribution"] == 0.0, name
+
+    def test_behavioural_evidence_is_not_diluted_by_a_null_dga(self, client):
+        """The fan-out case, end to end.
+
+        An ordinary-looking name whose *behaviour* is anomalous. Lexical and
+        DGA both find nothing; if either voted its zero, the behavioural
+        finding would be averaged into ALLOW. Both must abstain and leave the
+        behavioural signal to decide.
+        """
+        for index in range(14):
+            analyse(client, "n%d.quietbrook.com" % index)
+
+        result = analyse(client, "n99.quietbrook.com")
+        by_name = {s["name"]: s for s in result["signals"]}
+
+        behavioural = by_name["behavioral"]
+        assert behavioural["used_in_fusion"], "no behavioural evidence to test"
+        assert behavioural["score"] >= 30
+
+        assert by_name["lexical"]["confidence"] == 0.0
+        assert by_name["dga"]["confidence"] == 0.0
+        # With the null signals abstaining, behaviour is what is left and the
+        # fused score must reflect it rather than being averaged away.
+        assert result["risk_score"] >= behavioural["score"] - 1
+
+    def test_known_malicious_detection_is_intact(self, client):
+        for domain in (
+            "malware-c2-panel.test",
+            "login.ransom-payment-portal.test",
+            "compromised-host.example.com",
+        ):
+            result = analyse(client, domain)
+            assert result["decision"] == "BLOCK", domain
+            assert result["risk_score"] >= 70, domain
+
+    def test_dga_detection_is_intact(self, client):
+        for domain in ("xjqzwvbnmk4d8f2.top", "zzzxqwvbnmlkjh.info", "kqxvbnmwrtplzd.com"):
+            result = analyse(client, domain)
+            assert result["decision"] == "BLOCK", domain
+            dga = next(s for s in result["signals"] if s["name"] == "dga")
+            assert dga["used_in_fusion"], domain
+
+    def test_impersonation_detection_is_intact(self, client):
+        for domain in ("paypa1.com", "secure-login-microsoft-verify.tk"):
+            result = analyse(client, domain)
+            assert result["decision"] in ("MONITOR", "BLOCK"), domain
+            assert result["risk_score"] >= 60, domain
+
+    def test_tunnelling_detection_is_intact(self, client):
+        result = analyse(
+            client, "aGVsbG93b3JsZGRhdGFleGZpbA.dGhpc2lzZGF0YQ.tunnel.test"
+        )
+        tunnel = next(s for s in result["signals"] if s["name"] == "tunnel")
+        assert tunnel["used_in_fusion"]
+        assert result["decision"] in ("MONITOR", "BLOCK")
+
+    def test_legitimate_domains_stay_allowed(self, client):
+        for domain in (
+            "google.com", "github.com", "wikipedia.org", "cloudflare.com",
+            "sbi.co.in", "irctc.co.in", "drdo.gov.in", "nptel.ac.in",
+            "stackoverflow.com", "flipkart.com", "hdfcbank.com", "zee5.com",
+            "ndtv.com", "npci.com", "mcdonalds.com",
+        ):
+            result = analyse(client, domain)
+            assert result["decision"] == "ALLOW", "%s -> %s (%d)" % (
+                domain, result["decision"], result["risk_score"])

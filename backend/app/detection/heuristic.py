@@ -158,15 +158,25 @@ class BigramDGADetector(DGADetector):
         else:
             confidence = float(params.get("confidence_very_short", 0.30))
 
-        # Asymmetric confidence, for the same reason a threat-intelligence miss
-        # is not evidence of safety. A LOW score means "I found no algorithmic
-        # generation", which says nothing about whether the domain is phishing.
-        # Reporting that with full confidence would let this signal dilute
-        # strong evidence from another one - which is exactly what happened to
-        # hdfcbank-netbanking-verify.xyz before this was added.
+        # ABSENCE OF ANOMALY IS NOT EVIDENCE OF SAFETY - the same rule that
+        # governs a threat-intelligence miss (UNKNOWN) and a clean lexical
+        # result. A low score means "I found no algorithmic generation", which
+        # says nothing about whether the domain is phishing, being tunnelled
+        # through, or behaving anomalously.
+        #
+        # This used to merely *reduce* confidence (x0.45). That was not enough,
+        # because confidence is only a RELATIVE weight: when a signal is the
+        # only one reporting, the fused score equals its score no matter how
+        # low its confidence. A near-zero DGA score at 0.36 confidence
+        # therefore still dragged a strong behavioural finding down to ALLOW,
+        # and still flagged short legitimate acronyms on its own.
+        #
+        # Abstaining removes it from BOTH sums instead, so a null finding
+        # neither raises nor lowers the score. A positive finding is untouched
+        # and still contributes at full score/confidence/weight.
         moderate = float(cfg.get("dga.factor_thresholds.moderate", 0.5))
         if score < moderate:
-            confidence *= float(params.get("null_finding_confidence_factor", 0.45))
+            confidence = float(params.get("null_finding_confidence", 0.0))
 
         return DGAResult(
             score=score,

@@ -160,3 +160,46 @@ class TestHonestLabelling:
 
     def test_no_accuracy_claimed(self, analyzer):
         assert analyzer.info()["accuracy_claimed"] is None
+
+
+class TestRepositoryIsNotMemoised:
+    """A swapped-in event store must actually take effect.
+
+    The analyser is a process-wide singleton. Caching the repository on first
+    access meant a later set_event_repository() was ignored: the analyser kept
+    reading a database nothing was writing to and reported "no history"
+    forever, silently. That made behavioural results depend on which code
+    touched the pipeline first.
+    """
+
+    def test_a_swapped_repository_is_picked_up(self, tmp_path):
+        from backend.app.detection.behavioral import HistoryBehavioralAnalyzer
+        from backend.app.storage.events import (
+            EventRepository, get_event_repository, set_event_repository,
+        )
+
+        analyzer = HistoryBehavioralAnalyzer()
+        original = get_event_repository()
+        first = EventRepository(path=tmp_path / "first.db")
+        second = EventRepository(path=tmp_path / "second.db")
+        try:
+            set_event_repository(first)
+            assert analyzer.repository is first
+            set_event_repository(second)
+            assert analyzer.repository is second, "swap must not be ignored"
+        finally:
+            set_event_repository(original)
+
+    def test_an_injected_repository_still_wins(self, tmp_path):
+        from backend.app.detection.behavioral import HistoryBehavioralAnalyzer
+        from backend.app.storage.events import EventRepository, set_event_repository
+
+        injected = EventRepository(path=tmp_path / "injected.db")
+        analyzer = HistoryBehavioralAnalyzer(repository=injected)
+        original = None
+        try:
+            original = EventRepository(path=tmp_path / "global.db")
+            set_event_repository(original)
+            assert analyzer.repository is injected
+        finally:
+            set_event_repository(None)

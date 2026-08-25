@@ -72,11 +72,11 @@ class EventRepository:
                     classification, decision, confidence, ti_verdict,
                     ti_categories, ti_indicator, dga_score, lexical_score,
                     analysis_time_ms, top_factors, overrides_applied,
-                    features, source,
+                    features, source, name_kind,
                     event_type, query_type, query_class, client_address,
                     blocked, upstream_used, cache_hit, response_code,
                     block_policy, dns_upstream_time_ms, total_gateway_time_ms
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     _utc_now(),
@@ -96,6 +96,11 @@ class EventRepository:
                     json.dumps(assessment.overrides_applied),
                     json.dumps(result.features.to_dict()),
                     source,
+                    (
+                        result.features.classification.kind.value
+                        if result.features.classification
+                        else None
+                    ),
                     "dns" if dns else "analysis",
                     dns.query_type if dns else None,
                     dns.query_class if dns else None,

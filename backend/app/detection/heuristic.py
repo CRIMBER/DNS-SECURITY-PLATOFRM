@@ -39,9 +39,10 @@ character-frequency model, and are detected at roughly 0.5%.
 
 import math
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import RiskConfig, get_risk_config, load_json_data
+from ..core.classification import REGISTRANT_LABEL, NameKind
 from ..core.features import DomainFeatures
 from .base import DGADetector, DGAResult
 
@@ -54,6 +55,52 @@ def _sigmoid(x: float) -> float:
         return 1.0 / (1.0 + math.exp(-x))
     exp_x = math.exp(x)
     return exp_x / (1.0 + exp_x)
+
+
+def _scope_abstention(features: DomainFeatures) -> Optional[str]:
+    """Why this model cannot speak about this name, or None if it can.
+
+    Returns the reason so it can be reported rather than silently swallowed:
+    an abstaining signal still has to explain itself.
+    """
+    classification = features.classification
+    if classification is None:
+        return None
+
+    kind = classification.kind
+    if kind is NameKind.IP_LITERAL:
+        return (
+            "An IP address literal has no label to analyse. Scoring the "
+            "octets as text measures digit density of an address, not "
+            "algorithmic name generation."
+        )
+    if kind is NameKind.INFRASTRUCTURE:
+        return (
+            "Labels under {} are operator-defined or encode an address; "
+            "nobody chose them as a name.".format(
+                classification.public_suffix or "this zone")
+        )
+    if kind is NameKind.LOCAL_NAME:
+        return (
+            "Names in the special-use zone .{} are device or host names that "
+            "were never registered, so registrant-label analysis does not "
+            "apply.".format(classification.special_use or "local")
+        )
+    if not classification.has_scope(REGISTRANT_LABEL):
+        return "This name has no registrant-chosen label to analyse."
+
+    # The corpus is Latin-script brand labels. A Cyrillic or Han label is
+    # outside the training distribution, and a model that reports "random"
+    # for every non-Latin name is not detecting anything - it is failing in
+    # one direction. Saying so is more useful than a confident wrong score.
+    scripts = classification.scripts
+    if scripts and scripts != {"Latin"}:
+        return (
+            "Model trained on Latin-script labels; this name is {}. Its "
+            "measurement does not transfer.".format(
+                "/".join(sorted(scripts)))
+        )
+    return None
 
 
 class BigramDGADetector(DGADetector):
@@ -97,13 +144,35 @@ class BigramDGADetector(DGADetector):
 
     # -- scoring ------------------------------------------------------------
 
+    def _abstain(self, reason: str) -> DGAResult:
+        """A null result carrying confidence 0.0 and the reason why."""
+        return DGAResult(
+            score=0.0,
+            model=self.name,
+            model_type=self.model_type,
+            components={},
+            top_contributors=[],
+            confidence=0.0,
+            notes="Abstained: " + reason,
+        )
+
+
     def analyse(
         self, features: DomainFeatures, config: RiskConfig = None
     ) -> DGAResult:
         cfg = config or get_risk_config()
         params = cfg.get("dga.model_parameters", {}) or {}
 
-        label = features.sld or features.domain
+        # SCOPE: this model answers one question - "was this label generated
+        # rather than chosen by a person?" - and it can only answer it about a
+        # label a person might have chosen, written in the script its corpus
+        # was built from. The classifier says whether such a label exists here.
+        # Where it does not, the honest answer is no answer at all.
+        abstention = _scope_abstention(features)
+        if abstention is not None:
+            return self._abstain(abstention)
+
+        label = features.scope(REGISTRANT_LABEL) or features.sld or features.domain
         letters_and_digits = re.sub(r"[^a-z0-9-]", "", label.lower())
 
         llr = self.log_likelihood_ratio(label)

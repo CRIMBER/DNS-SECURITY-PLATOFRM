@@ -18,10 +18,65 @@ voting a zero score against what the other signals observed.
 from typing import List
 
 from ..config import RiskConfig, get_risk_config
+from .classification import REGISTRANT_LABEL, NameKind
 from .features import DomainFeatures
 from .signals import RiskFactor, Severity, Signal, clamp
 
 SIGNAL_NAME = "lexical"
+
+# Kinds where no label was chosen by anyone, so "does this look like a name a
+# human picked?" has no meaning. Shape rules measure entropy, digit density,
+# vowel ratio and dictionary coverage - all of which answer that question.
+_NO_CHOSEN_LABEL = frozenset({
+    NameKind.IP_LITERAL, NameKind.INFRASTRUCTURE, NameKind.LOCAL_NAME,
+})
+
+# Rules that answer "does this look like a name a person chose?". They only
+# mean something when somebody actually chose the label.
+_SHAPE_CODES = frozenset({
+    "ENTROPY_HIGH", "ENTROPY_VERY_HIGH", "ENTROPY_NORMALIZED_HIGH",
+    "DIGIT_RATIO_HIGH", "DIGIT_RATIO_VERY_HIGH", "NO_DICTIONARY_WORDS",
+    "CONSONANT_RUN_LONG", "VOWEL_RATIO_LOW", "LENGTH_LONG",
+    "LENGTH_VERY_LONG", "HYPHEN_MANY", "SUBDOMAIN_DEEP", "SUSPICIOUS_TLD",
+})
+
+# Rules that read the name for MEANING rather than for shape.
+_SEMANTIC_CODES = frozenset({
+    "SUSPICIOUS_KEYWORD", "BRAND_IMPERSONATION", "BRAND_SUBSTRING", "PUNYCODE",
+})
+
+
+def _shape_applies(features: DomainFeatures) -> bool:
+    """Whether the name-shape rules have a chosen label to judge."""
+    classification = features.classification
+    if classification is None:
+        return True
+    if classification.kind in _NO_CHOSEN_LABEL:
+        return False
+    # These rules encode Latin-script, English-language assumptions: vowel
+    # ratio, consonant runs, dictionary coverage, entropy calibrated on ASCII
+    # labels. Applied to a punycode string they measure the ENCODING, not the
+    # name - the "29% digit ratio" of xn--80ak6aa92e is the 80 and 92 that
+    # punycode inserted. Every internationalised domain therefore looked
+    # machine-generated. Same limitation as the bigram model, same answer.
+    if classification.scripts and classification.scripts != {"Latin"}:
+        return False
+    return classification.has_scope(REGISTRANT_LABEL)
+
+
+def _semantics_apply(features: DomainFeatures) -> bool:
+    """Whether brand/keyword matching has readable text to match against.
+
+    Wider than the shape rules on purpose: a printer advertised as
+    ``hp-laserjet.local`` was never registered, but the brand token is still
+    worth seeing. An address literal and a reverse-DNS name carry no such text.
+    """
+    classification = features.classification
+    if classification is None:
+        return True
+    return classification.kind not in (
+        NameKind.IP_LITERAL, NameKind.INFRASTRUCTURE,
+    )
 
 
 def _factor(
@@ -48,8 +103,18 @@ def score_lexical(
     factors: List[RiskFactor] = []
     total = 0.0
 
+    # SCOPE: which families of rule apply to this kind of name at all. Each
+    # rule below stays written as a plain measurement; the gate decides
+    # whether that measurement means anything here.
+    shape_applies = _shape_applies(features)
+    semantics_apply = _semantics_apply(features)
+
     def fire(factor: RiskFactor) -> None:
         nonlocal total
+        if factor.code in _SHAPE_CODES and not shape_applies:
+            return
+        if factor.code in _SEMANTIC_CODES and not semantics_apply:
+            return
         total += factor.raw_points
         factors.append(factor)
 
@@ -313,18 +378,12 @@ def score_lexical(
             )
         )
 
-    if features.is_ip_literal:
-        rule = cfg.rule("ip_literal")
-        fire(
-            _factor(
-                "IP_LITERAL",
-                "Raw IP address instead of a domain name",
-                Severity.MEDIUM,
-                "Direct-to-IP requests bypass domain reputation entirely and "
-                "are common in malware callbacks.",
-                float(rule.get("points", 20)),
-            )
-        )
+    # The old IP_LITERAL rule lived here. "This is an address, not a name" is
+    # now a structural fact from the classifier rather than a lexical
+    # observation, and scoring the octets as text is what made 192.168.1.10
+    # reach 95/BLOCK. Whether an address literal is itself suspicious is a
+    # policy question - and a different one for 8.8.8.8 than for a private
+    # address - so it is left to an evidenced decision rather than 20 points.
 
     max_score = float(cfg.get("lexical.max_score", 100))
     score = clamp(total, 0.0, max_score)
@@ -338,6 +397,39 @@ def score_lexical(
     confidence = float(conf_cfg.get("base", 0.85))
     if features.sld_length < min_len:
         confidence = float(conf_cfg.get("short_domain_penalty", 0.45))
+
+    if not factors and not shape_applies and not semantics_apply:
+        # Nothing this scorer measures applies to this kind of name. That is a
+        # different statement from "measured and found nothing", and it is
+        # reported as its own factor so the distinction survives to the
+        # dashboard instead of looking like a clean bill of health.
+        kind = features.classification.kind.value if features.classification else "?"
+        reason = features.classification.reason if features.classification else ""
+        return Signal(
+            name=SIGNAL_NAME,
+            score=0.0,
+            confidence=0.0,
+            factors=[
+                RiskFactor(
+                    code="LEXICAL_NOT_APPLICABLE",
+                    label="Lexical analysis does not apply to this name",
+                    severity=Severity.INFO,
+                    detail="Classified {}. {} No lexical rule was evaluated, so "
+                    "this signal abstains.".format(kind, reason),
+                    raw_points=0.0,
+                )
+            ],
+            metadata={
+                "raw_points": 0.0,
+                "capped_at_max": False,
+                "effective_entropy": 0.0,
+                "method": "rule_based_lexical_v1",
+                "method_type": "TRANSPARENT_RULE_BASED",
+                "not_applicable": True,
+                "name_kind": kind,
+            },
+            scope_key=REGISTRANT_LABEL,
+        )
 
     if not factors:
         # Asymmetric confidence: ABSENCE OF ANOMALY IS NOT EVIDENCE OF SAFETY.
@@ -380,4 +472,7 @@ def score_lexical(
             "method": "rule_based_lexical_v1",
             "method_type": "TRANSPARENT_RULE_BASED",
         },
+        # Reads the registrant label, exactly as the DGA model does. Recorded
+        # so the engine can see the two are not independent evidence.
+        scope_key=REGISTRANT_LABEL,
     )

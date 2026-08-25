@@ -29,10 +29,16 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..config import RiskConfig, get_risk_config
+from ..core.classification import DELEGATED_SPAN, NameKind
 from ..core.features import DomainFeatures, shannon_entropy
 from ..core.signals import RiskFactor, Severity, Signal, clamp
 
 SIGNAL_NAME = "tunnel"
+
+# Kinds with no attacker-varied payload span. An address literal has no labels
+# below it, and the labels of a reverse-DNS name encode an address rather than
+# carrying data.
+_NO_PAYLOAD_SPAN = frozenset({NameKind.IP_LITERAL, NameKind.INFRASTRUCTURE})
 
 # Record types that return more data than an address, and so are favoured by
 # tunnelling tools for the downstream channel.
@@ -120,7 +126,37 @@ class HeuristicTunnelDetector(TunnelDetector):
         points = cfg.get("tunnel.points", {}) or {}
         context = context or {}
 
-        subdomain = features.subdomain or ""
+        # SCOPE: the exfiltration channel is DELEGATED_SPAN - everything the
+        # zone operator can vary from one query to the next.
+        #
+        # For a name with a zone owner this is the same span `features.subdomain`
+        # already gave, and reading it here changes no score: an attacker who
+        # owns evilsite.pages.dev and one who owns victimzone.test both get 86
+        # for the same payload, because both own a zone and vary the labels
+        # below it. Naming the span explicitly is the point - it stops the
+        # next detector from re-deriving "the subdomain" for itself and getting
+        # a different answer.
+        #
+        # What DOES change is the guard below: an address literal has no labels
+        # to carry a payload, and a reverse-DNS name's labels encode an address
+        # rather than data.
+        classification = features.classification
+        if classification is not None and classification.kind in _NO_PAYLOAD_SPAN:
+            return TunnelResult(
+                score=0.0,
+                confidence=0.0,
+                indicators=[],
+                measurements={
+                    "not_applicable": True,
+                    "name_kind": classification.kind.value,
+                    "query_type": (context or {}).get("query_type"),
+                },
+            )
+        subdomain = (
+            classification.scope(DELEGATED_SPAN)
+            if classification is not None
+            else features.subdomain
+        ) or ""
         labels = [part for part in subdomain.split(".") if part]
 
         measurements: Dict[str, Any] = {
@@ -263,6 +299,7 @@ def tunnel_to_signal(result: TunnelResult, config) -> Signal:
         )
 
     return Signal(
+        scope_key=DELEGATED_SPAN,
         name=SIGNAL_NAME,
         score=result.score,
         confidence=result.confidence,

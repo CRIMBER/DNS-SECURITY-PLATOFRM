@@ -82,6 +82,10 @@ ADDED_COLUMNS = [
     ("block_policy", "TEXT"),
     ("dns_upstream_time_ms", "REAL"),
     ("total_gateway_time_ms", "REAL"),
+    # Which kind of name produced this verdict. Nullable on purpose: rows
+    # written before the classification stage existed read as NULL, which is
+    # honest - they were scored by a system that did not classify. No backfill.
+    ("name_kind", "TEXT"),
 ]
 
 _initialised_paths = set()

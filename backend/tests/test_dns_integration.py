@@ -361,8 +361,8 @@ class TestCaching:
             # Simulate the domain becoming malicious by forcing the decision.
             original = gateway.handler.pipeline.analyse
 
-            def blocked_analysis(domain):
-                result = original(domain)
+            def blocked_analysis(domain, context=None):
+                result = original(domain, context)
                 result.assessment.decision = "BLOCK"
                 return result
 

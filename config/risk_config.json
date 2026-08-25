@@ -2,10 +2,12 @@
   "_comment": "Single source of truth for all tunable risk policy. Edit this file, restart the API. No weights or thresholds are hardcoded anywhere else.",
   "version": "1.0.0",
   "weights": {
-    "_comment": "Relative importance of each independent signal. Need not sum to 1.0 - the engine normalises by (weight x confidence) of the signals that actually reported.",
+    "_comment": "Relative importance of each independent signal. Need not sum to 1.0 - the engine normalises by (weight x confidence) of the signals that actually reported. threat_intel/dga/lexical keep their approved 40/35/25 ratio; tunnel and behavioral report confidence 0.0 unless they observe something, so they add risk when they fire and change nothing when they do not.",
     "threat_intel": 0.4,
     "dga": 0.35,
-    "lexical": 0.25
+    "lexical": 0.25,
+    "tunnel": 0.15,
+    "behavioral": 0.1
   },
   "threat_intel": {
     "_comment": "How a threat-intelligence verdict maps onto a 0-100 signal score. UNKNOWN scores 0 but is reported with confidence 0.0, which removes it from the weighted average entirely - it must never be read as evidence of safety.",
@@ -37,6 +39,52 @@
     "factor_thresholds": {
       "high": 0.8,
       "moderate": 0.5
+    }
+  },
+  "tunnel": {
+    "_comment": "DNS tunnelling detection over the query name. Reports confidence 0.0 when the name has no subdomain to carry a payload, or when no indicator fires.",
+    "thresholds": {
+      "subdomain_length": 40,
+      "label_length": 30,
+      "entropy": 3.8,
+      "label_count": 5,
+      "min_length_for_entropy": 30
+    },
+    "points": {
+      "long_subdomain": 28,
+      "long_label": 24,
+      "high_subdomain_entropy": 22,
+      "many_labels": 14,
+      "encoded_payload": 26,
+      "high_capacity_record": 12
+    },
+    "confidence": {
+      "single_indicator": 0.35,
+      "two_indicators": 0.6,
+      "multiple_indicators": 0.85
+    }
+  },
+  "behavioral": {
+    "_comment": "Behavioural analysis over stored query history. Abstains (confidence 0.0) until a domain has been seen enough times to have behaviour worth analysing.",
+    "window_minutes": 60,
+    "thresholds": {
+      "min_queries_for_evidence": 3,
+      "burst_queries": 20,
+      "distinct_subdomains": 8,
+      "nxdomain_ratio": 0.5,
+      "min_queries_for_nxdomain_ratio": 5,
+      "prior_blocks": 3
+    },
+    "points": {
+      "query_burst": 26,
+      "subdomain_fanout": 30,
+      "high_nxdomain_ratio": 22,
+      "repeatedly_blocked": 20
+    },
+    "confidence": {
+      "base": 0.5,
+      "per_query": 0.01,
+      "max": 0.85
     }
   },
   "thresholds": {
@@ -81,7 +129,11 @@
     "ti_trusted_ceiling": {
       "enabled": true,
       "ceiling": 25,
-      "description": "A domain on the trusted allowlist is capped, preventing false positives on legitimate domains with unusual lexical shape."
+      "description": "A domain on the trusted allowlist is capped, preventing false positives on legitimate domains with an unusual lexical shape. The cap does NOT apply when a signal listed in exempt_signals reports at or above its threshold: the allowlist speaks to the reputation of the domain, while tunnelling and behavioural anomalies are about what is being carried through it. Without this exemption, exfiltration through any allowlisted domain would be invisible by construction.",
+      "exempt_signals": {
+        "tunnel": 60,
+        "behavioral": 60
+      }
     },
     "corroboration_bonus": {
       "enabled": true,

@@ -13,7 +13,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..config import RiskConfig, get_risk_config
-from ..detection import dga_to_signal, get_dga_detector
+from ..detection import (
+    behavioral_to_signal,
+    dga_to_signal,
+    get_behavioral_analyzer,
+    get_dga_detector,
+    get_tunnel_detector,
+    tunnel_to_signal,
+)
 from ..intel import get_threat_intel_provider, intel_to_signal
 from .features import DomainFeatures, extract_features
 from .lexical import score_lexical
@@ -50,6 +57,16 @@ class AnalysisResult:
         signal = self.signal_named("dga")
         return signal.metadata if signal else {}
 
+    @property
+    def tunnel_metadata(self) -> Dict[str, Any]:
+        signal = self.signal_named("tunnel")
+        return signal.metadata if signal else {}
+
+    @property
+    def behavioral_metadata(self) -> Dict[str, Any]:
+        signal = self.signal_named("behavioral")
+        return signal.metadata if signal else {}
+
 
 class AnalysisPipeline:
     """Runs a domain through every stage of analysis."""
@@ -58,7 +75,12 @@ class AnalysisPipeline:
         self.config = config or get_risk_config()
         self.engine = RiskEngine(self.config)
 
-    def _collect_signals(self, features: DomainFeatures, timings: Dict[str, float]):
+    def _collect_signals(
+        self,
+        features: DomainFeatures,
+        timings: Dict[str, float],
+        context: Optional[Dict[str, Any]] = None,
+    ):
         """Run every registered signal provider.
 
         This list is the extension point. A behavioural analyzer, a DNS
@@ -85,10 +107,27 @@ class AnalysisPipeline:
         signals.append(score_lexical(features, self.config))
         timings["lexical"] = (time.perf_counter() - started) * 1000.0
 
+        started = time.perf_counter()
+        tunnel_result = get_tunnel_detector().analyse(features, context, self.config)
+        signals.append(tunnel_to_signal(tunnel_result, self.config))
+        timings["tunnel"] = (time.perf_counter() - started) * 1000.0
+
+        started = time.perf_counter()
+        behavioral_result = get_behavioral_analyzer().analyse(features, self.config)
+        signals.append(behavioral_to_signal(behavioral_result, self.config))
+        timings["behavioral"] = (time.perf_counter() - started) * 1000.0
+
         return signals
 
-    def analyse(self, raw_domain: str) -> AnalysisResult:
-        """Full pipeline. Raises ``DomainValidationError`` on bad input."""
+    def analyse(
+        self, raw_domain: str, context: Optional[Dict[str, Any]] = None
+    ) -> AnalysisResult:
+        """Full pipeline. Raises ``DomainValidationError`` on bad input.
+
+        ``context`` carries optional protocol-level facts the DNS gateway knows
+        and the HTTP API does not - currently the record type. Signals that can
+        use it do; the rest ignore it. Optional so ``/api/analyze`` is unchanged.
+        """
         total_started = time.perf_counter()
         timings: Dict[str, float] = {}
 
@@ -100,7 +139,7 @@ class AnalysisPipeline:
         features = extract_features(normalized)
         timings["features"] = (time.perf_counter() - started) * 1000.0
 
-        signals = self._collect_signals(features, timings)
+        signals = self._collect_signals(features, timings, context)
 
         started = time.perf_counter()
         assessment = self.engine.assess(signals)

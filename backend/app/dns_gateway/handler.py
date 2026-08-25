@@ -121,8 +121,13 @@ class DNSRequestHandler:
             self.stats.record_query_type(qtype)
 
         # -- 1. analysis, before anything touches the network ---------------
+        # The record type is passed through as context: the tunnelling detector
+        # uses it (TXT/NULL carry more return data and are favoured for covert
+        # channels), and signals that do not care simply ignore it.
         try:
-            result = self.pipeline.analyse(qname)
+            result = self.pipeline.analyse(
+                qname, {"query_type": qtype, "query_class": qclass}
+            )
         except DomainValidationError as exc:
             # A syntactically valid DNS name our normaliser rejects. Refuse
             # rather than forwarding something we could not evaluate.

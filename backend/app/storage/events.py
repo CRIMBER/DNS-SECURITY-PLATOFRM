@@ -348,6 +348,36 @@ class EventRepository:
         }
 
 
+    def domain_history(self, registrable_domain: str, window_minutes: int = 60):
+        """Recent activity for one registrable domain.
+
+        Feeds the behavioural analyser. Deliberately narrow and indexed - this
+        runs on the DNS hot path, once per query.
+        """
+        since = (
+            datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total, "
+                "COUNT(DISTINCT domain) AS distinct_names, "
+                "COALESCE(MAX(risk_score), 0) AS max_risk, "
+                "COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked, "
+                "COALESCE(SUM(CASE WHEN response_code = 'NXDOMAIN' AND blocked = 0 "
+                "               THEN 1 ELSE 0 END), 0) AS nxdomain "
+                "FROM events WHERE registrable_domain = ? AND ts_utc >= ?",
+                (registrable_domain, since),
+            ).fetchone()
+
+        return {
+            "total_queries": row["total"] or 0,
+            "distinct_names": row["distinct_names"] or 0,
+            "max_risk_score": row["max_risk"] or 0,
+            "blocked_count": row["blocked"] or 0,
+            "nxdomain_count": row["nxdomain"] or 0,
+        }
+
     # -- DNS aggregations ---------------------------------------------------
 
     def dns_stats(self, recent_hours: int = 24) -> Dict[str, Any]:

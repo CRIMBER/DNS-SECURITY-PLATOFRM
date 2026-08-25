@@ -189,6 +189,16 @@ class AnalyzeResponse(BaseModel):
     )
     threat_intelligence: ThreatIntelligenceModel
     dga_analysis: DGAAnalysisModel
+    tunnel_analysis: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="DNS tunnelling indicators found in the query name. Reports "
+        "confidence 0.0 when the name has no subdomain to carry a payload.",
+    )
+    behavioral_analysis: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Analysis of this domain's observed query history. Abstains "
+        "with confidence 0.0 until enough history exists.",
+    )
     domain_features: Dict[str, Any]
     risk_factors: List[RiskFactorModel] = Field(
         description="Why the score is what it is. Contributions sum to risk_score."

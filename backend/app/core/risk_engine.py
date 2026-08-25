@@ -136,10 +136,42 @@ class RiskEngine:
             share = max(0.0, factor.raw_points) / total_points
             factor.contribution = contribution * share
 
+    def _allowlist_exemptions(self, signals: List[Signal]) -> List[str]:
+        """Signals whose evidence the trusted allowlist does not get to silence.
+
+        An allowlist entry is a statement about a domain's REPUTATION. DNS
+        tunnelling and behavioural anomalies are statements about what is being
+        carried through it. When one of those reports strongly, the allowlist is
+        set aside for this query entirely - both its score ceiling AND its
+        "zero risk" vote in the weighted average.
+
+        Doing only half of that would be incoherent: lifting the cap while
+        letting a 0.9-confidence vote for zero risk still dilute the evidence
+        leaves the finding buried anyway.
+        """
+        rule = self.config.override("ti_trusted_ceiling")
+        if not rule.get("enabled", True):
+            return []
+        exemptions = rule.get("exempt_signals", {}) or {}
+        if not exemptions:
+            return []
+
+        ti = next((s for s in signals if s.name == "threat_intel"), None)
+        if ti is None or ti.metadata.get("verdict") != "TRUSTED":
+            return []
+
+        return [
+            signal.name
+            for signal in signals
+            if signal.name in exemptions
+            and signal.is_informative
+            and signal.score >= float(exemptions[signal.name])
+        ]
+
     # -- overrides ----------------------------------------------------------
 
     def _apply_overrides(
-        self, score: float, signals: List[Signal]
+        self, score: float, signals: List[Signal], exempt_by: List[str]
     ) -> "tuple":
         """Apply policy rules after fusion.
 
@@ -260,7 +292,7 @@ class RiskEngine:
         # 5. Allowlist ceiling, applied last so it is authoritative.
         rule = self.config.override("ti_trusted_ceiling")
         if rule.get("enabled", True) and ti is not None:
-            if ti.metadata.get("verdict") == "TRUSTED":
+            if ti.metadata.get("verdict") == "TRUSTED" and not exempt_by:
                 ceiling = float(rule.get("ceiling", 25))
                 if score > ceiling:
                     score = move(
@@ -274,6 +306,24 @@ class RiskEngine:
                         "shape.".format(ceiling),
                         "ti_trusted_ceiling",
                     )
+            elif exempt_by:
+                override_factors.append(
+                    RiskFactor(
+                        code="OVERRIDE_ALLOWLIST_SET_ASIDE",
+                        label="Allowlist set aside for this query",
+                        severity=Severity.HIGH,
+                        detail="This domain is allowlisted, but the {} signal "
+                        "reported strong evidence. An allowlist covers a "
+                        "domain's reputation, not what is being carried through "
+                        "it, so neither its score cap nor its low-risk vote was "
+                        "applied here. Without this, exfiltration through any "
+                        "allowlisted domain would be invisible by "
+                        "construction.".format(" and ".join(exempt_by)),
+                        raw_points=0.0,
+                        contribution=0.0,
+                    )
+                )
+                applied.append("allowlist_set_aside")
 
         return score, override_factors, applied
 
@@ -315,12 +365,22 @@ class RiskEngine:
     # -- entry point --------------------------------------------------------
 
     def assess(self, signals: List[Signal]) -> RiskAssessment:
+        # Decide before fusing whether the allowlist applies at all, so a
+        # trusted verdict cannot dilute evidence it does not speak to.
+        exempt_by = self._allowlist_exemptions(signals)
+        if exempt_by:
+            for signal in signals:
+                if signal.name == "threat_intel":
+                    signal.confidence = 0.0
+
         base, summaries, divisor, coverage = self._fuse(signals)
 
         for signal, summary in zip(signals, summaries):
             self._distribute(signal, summary.weighted_contribution)
 
-        score, override_factors, applied = self._apply_overrides(base, signals)
+        score, override_factors, applied = self._apply_overrides(
+            base, signals, exempt_by
+        )
         score = clamp(score)
 
         factors: List[RiskFactor] = []

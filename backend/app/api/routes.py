@@ -18,7 +18,12 @@ from ..core.features import BRANDS, SUSPICIOUS_KEYWORDS, SUSPICIOUS_TLD_WEIGHTS,
 from ..core.lexical import score_lexical
 from ..core.normalizer import DomainValidationError, normalize
 from ..core.pipeline import AnalysisResult, get_pipeline
-from ..detection import dga_to_signal, get_dga_detector
+from ..detection import (
+    dga_to_signal,
+    get_behavioral_analyzer,
+    get_dga_detector,
+    get_tunnel_detector,
+)
 from ..dns_gateway import get_gateway
 from ..dns_gateway.policy import DECLARED_BUT_UNIMPLEMENTED, REGISTRY
 from ..intel import get_threat_intel_provider, intel_to_signal
@@ -69,6 +74,10 @@ async def health() -> HealthResponse:
                 get_threat_intel_provider().stats(), status="ok"
             ),
             "dga_detector": dict(get_dga_detector().info(), status="ok"),
+            "tunnel_detector": dict(get_tunnel_detector().info(), status="ok"),
+            "behavioral_analyzer": dict(
+                get_behavioral_analyzer().info(), status="ok"
+            ),
             "risk_engine": {
                 "status": "ok",
                 "weights": config.weights,
@@ -210,6 +219,8 @@ def _to_response(result: AnalysisResult, event_id) -> AnalyzeResponse:
         confidence=round(assessment.confidence, 3),
         threat_intelligence=result.intel_metadata,
         dga_analysis=result.dga_metadata,
+        tunnel_analysis=result.tunnel_metadata,
+        behavioral_analysis=result.behavioral_metadata,
         domain_features=result.features.to_dict(),
         risk_factors=[f.to_dict() for f in assessment.factors],
         signals=[s.to_dict() for s in assessment.signals],

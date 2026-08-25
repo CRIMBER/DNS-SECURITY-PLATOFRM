@@ -1,0 +1,189 @@
+{
+  "_comment": "Brands commonly targeted by typosquatting and impersonation. Each maps to ALL registrable domains the brand legitimately operates, so a genuine domain is never flagged as impersonating itself. PROTOTYPE SCOPE: hand-curated. Production should source this from a brand-protection feed.",
+  "brands": {
+    "google": [
+      "google.com",
+      "google.co.in",
+      "google.co.uk",
+      "googleapis.com",
+      "googleusercontent.com",
+      "withgoogle.com"
+    ],
+    "youtube": [
+      "youtube.com",
+      "youtu.be",
+      "ytimg.com"
+    ],
+    "facebook": [
+      "facebook.com",
+      "fb.com",
+      "fbcdn.net"
+    ],
+    "instagram": [
+      "instagram.com",
+      "cdninstagram.com"
+    ],
+    "whatsapp": [
+      "whatsapp.com",
+      "whatsapp.net"
+    ],
+    "microsoft": [
+      "microsoft.com",
+      "microsoftonline.com",
+      "microsoft.net",
+      "msn.com"
+    ],
+    "windows": [
+      "microsoft.com",
+      "windows.com",
+      "windowsupdate.com"
+    ],
+    "outlook": [
+      "outlook.com",
+      "live.com",
+      "hotmail.com"
+    ],
+    "apple": [
+      "apple.com",
+      "apple.co.uk",
+      "icloud.com",
+      "mzstatic.com"
+    ],
+    "icloud": [
+      "icloud.com",
+      "apple.com"
+    ],
+    "amazon": [
+      "amazon.com",
+      "amazon.in",
+      "amazon.co.uk",
+      "amazonaws.com",
+      "media-amazon.com"
+    ],
+    "netflix": [
+      "netflix.com",
+      "nflxvideo.net",
+      "nflximg.net"
+    ],
+    "paypal": [
+      "paypal.com",
+      "paypal.me",
+      "paypalobjects.com"
+    ],
+    "linkedin": [
+      "linkedin.com",
+      "licdn.com"
+    ],
+    "twitter": [
+      "twitter.com",
+      "x.com",
+      "twimg.com"
+    ],
+    "github": [
+      "github.com",
+      "github.io",
+      "githubusercontent.com"
+    ],
+    "dropbox": [
+      "dropbox.com",
+      "dropboxusercontent.com"
+    ],
+    "adobe": [
+      "adobe.com",
+      "adobe.io",
+      "typekit.net"
+    ],
+    "spotify": [
+      "spotify.com",
+      "scdn.co"
+    ],
+    "binance": [
+      "binance.com",
+      "binance.us"
+    ],
+    "coinbase": [
+      "coinbase.com",
+      "cbhq.net"
+    ],
+    "metamask": [
+      "metamask.io"
+    ],
+    "hdfc": [
+      "hdfcbank.com",
+      "hdfc.com",
+      "hdfcsec.com"
+    ],
+    "icici": [
+      "icicibank.com",
+      "icicidirect.com",
+      "icicilombard.com"
+    ],
+    "paytm": [
+      "paytm.com",
+      "paytmbank.com",
+      "paytm.in"
+    ],
+    "phonepe": [
+      "phonepe.com",
+      "phonepe.in"
+    ],
+    "aadhaar": [
+      "uidai.gov.in"
+    ],
+    "irctc": [
+      "irctc.co.in",
+      "irctc.com",
+      "indianrail.gov.in"
+    ],
+    "flipkart": [
+      "flipkart.com",
+      "flixcart.com"
+    ],
+    "telegram": [
+      "telegram.org",
+      "telegram.me",
+      "t.me"
+    ],
+    "wellsfargo": [
+      "wellsfargo.com"
+    ],
+    "santander": [
+      "santander.com",
+      "santander.co.uk"
+    ],
+    "barclays": [
+      "barclays.com",
+      "barclays.co.uk"
+    ],
+    "hdfcbank": [
+      "hdfcbank.com",
+      "hdfc.com",
+      "hdfcsec.com"
+    ],
+    "icicibank": [
+      "icicibank.com",
+      "icicidirect.com",
+      "icicilombard.com"
+    ],
+    "axisbank": [
+      "axisbank.com"
+    ],
+    "onlinesbi": [
+      "onlinesbi.sbi",
+      "onlinesbi.com",
+      "sbi.co.in"
+    ],
+    "statebank": [
+      "onlinesbi.sbi",
+      "sbi.co.in"
+    ],
+    "kotakbank": [
+      "kotak.com"
+    ],
+    "bankofbaroda": [
+      "bankofbaroda.in",
+      "bankofbaroda.com"
+    ]
+  },
+  "_excluded_note": "Deliberately NOT listed: 'office', 'steam', 'zoom', 'axis', 'chase', 'sbi'. Each is either an ordinary English word or too short to token-match without producing false positives on unrelated legitimate domains. Typosquat detection needs a brand of at least 5 characters to be meaningful."
+}

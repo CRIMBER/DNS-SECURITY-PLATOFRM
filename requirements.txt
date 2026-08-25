@@ -1,0 +1,5 @@
+# AI-Powered Adaptive DNS Security & Threat Intelligence Platform
+# Prototype 1 - runtime dependencies (kept deliberately minimal)
+fastapi>=0.110,<1.0
+uvicorn>=0.27,<1.0
+pydantic>=2.6,<3.0

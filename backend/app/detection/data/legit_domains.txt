@@ -1,0 +1,110 @@
+# Registrable labels of well-known legitimate domains, used ONLY as the
+# training corpus for the character-bigram language model in heuristic.py.
+#
+# These are the *second-level labels* (the part a DGA would generate), not full
+# domains. Nothing here is ever resolved or contacted - the strings exist purely
+# to measure what human-registered domain names look like statistically.
+#
+# Whitespace-separated. Lines beginning with '#' are ignored.
+#
+# PROTOTYPE SCOPE: a few hundred labels is enough to learn stable English-like
+# character transition statistics. Production would train on a full popularity
+# ranking such as the Tranco top 1M.
+
+google youtube facebook instagram whatsapp microsoft outlook office windows live
+apple icloud itunes amazon amazonaws netflix spotify twitch reddit twitter linkedin
+github gitlab bitbucket stackoverflow stackexchange serverfault superuser askubuntu
+wikipedia wikimedia wiktionary wikihow britannica archive gutenberg
+cloudflare akamai fastly digitalocean linode heroku vercel netlify render
+dropbox box mega mediafire wetransfer drive onedrive sharepoint
+paypal stripe square venmo wise revolut payoneer skrill
+visa mastercard americanexpress discover
+adobe autodesk figma canva sketch invision framer
+zoom slack discord telegram signal skype webex teams
+salesforce hubspot zendesk freshworks intercom mailchimp sendgrid twilio
+atlassian jira confluence trello asana notion airtable monday clickup basecamp
+oracle ibm intel nvidia amd qualcomm broadcom cisco juniper arista
+samsung sony panasonic toshiba hitachi fujitsu sharp lenovo asus acer
+dell hewlett packard logitech corsair razer seagate western digital kingston
+tesla toyota honda nissan mazda subaru mitsubishi hyundai volkswagen audi
+mercedes porsche ferrari lamborghini bugatti volvo renault peugeot citroen
+walmart target costco kroger safeway aldi lidl carrefour tesco sainsburys
+ikea homedepot lowes wayfair overstock etsy alibaba aliexpress taobao
+ebay shopify bigcommerce woocommerce magento squarespace wix weebly
+booking airbnb expedia tripadvisor kayak skyscanner agoda hotels trivago
+uber lyft grab gojek didi bolt
+doordash grubhub deliveroo instacart postmates
+mcdonalds starbucks subway dominos pizzahut burgerking wendys chipotle dunkin
+nike adidas puma reebok underarmour newbalance skechers converse vans
+zara uniqlo gap levis nordstrom macys kohls primark
+loreal nivea dove olay garnier maybelline revlon sephora ulta
+pfizer moderna novartis roche sanofi bayer merck astrazeneca gsk abbott
+johnson unilever nestle danone kellogg pepsico cocacola mondelez kraft
+mayoclinic clevelandclinic webmd healthline drugs medlineplus nih cdc
+harvard stanford berkeley princeton yale columbia cornell dartmouth
+oxford cambridge imperial edinburgh manchester warwick
+coursera edx udemy udacity skillshare pluralsight datacamp brilliant
+khanacademy duolingo babbel rosettastone quizlet chegg gradescope
+arxiv jstor researchgate academia sciencedirect springer elsevier wiley
+nature science cell lancet nejm plos frontiersin
+nytimes washingtonpost guardian telegraph independent economist
+reuters bloomberg forbes fortune businessinsider cnbc marketwatch
+bbc cnn nbcnews abcnews cbsnews foxnews aljazeera dw france24
+techcrunch wired verge engadget arstechnica gizmodo mashable zdnet
+hackernews slashdot producthunt indiehackers
+medium substack wordpress blogger tumblr ghost hashnode
+imdb rottentomatoes metacritic letterboxd goodreads
+soundcloud bandcamp pandora deezer tidal audiomack
+vimeo dailymotion rumble bitchute odysee
+pinterest flickr unsplash pexels shutterstock gettyimages istockphoto
+behance dribbble artstation deviantart
+docker kubernetes terraform ansible jenkins circleci travis
+python golang rustlang nodejs typescriptlang java kotlin scala
+django flask fastapi express nestjs laravel symfony rails spring
+react angular vuejs svelte nextjs nuxtjs remix astro
+mongodb postgresql mysql mariadb redis elastic cassandra clickhouse
+apache nginx haproxy envoyproxy grafana prometheus datadog newrelic
+mozilla debian ubuntu fedora centos archlinux gentoo opensuse
+kernel gnu freebsd openbsd netbsd
+sourceforge npmjs pypi rubygems packagist nuget maven
+letsencrypt digicert globalsign sectigo entrust
+virustotal shodan censys urlscan abuseipdb misp
+openai anthropic huggingface deepmind cohere mistral perplexity
+nasa esa spacex blueorigin rocketlab
+weather accuweather wunderground windy
+timeanddate worldclock calendarlabs
+speedtest fast downdetector isitdownrightnow
+irctc indianrail makemytrip yatra goibibo cleartrip redbus
+flipkart myntra ajio nykaa snapdeal meesho firstcry pepperfry
+zomato swiggy dineout bigbasket blinkit zepto dunzo
+paytm phonepe razorpay billdesk cashfree instamojo mobikwik
+onlinesbi hdfcbank icicibank axisbank kotak yesbank indusind
+pnbindia bankofbaroda canarabank unionbankofindia idbibank rbi npci
+zerodha groww upstox angelone icicidirect motilaloswal
+policybazaar coverfox acko digit bajajallianz
+uidai incometax gst epfindia esic passportindia digilocker
+mygov india nic cowin ayushmanbharat pmindia
+isro drdo csir icar iitb iitd iitm iitk iitkgp iisc nptel
+aicte ugc cbse ncert nios ignou du jnu bhu amu
+naukri indeed monster glassdoor shine timesjobs internshala
+practo apollo fortis maxhealthcare medanta narayanahealth
+jio airtel vodafoneidea bsnl actcorp hathway excitel
+timesofindia hindustantimes indianexpress thehindu ndtv news18
+livemint moneycontrol economictimes businessstandard financialexpress
+hotstar sonyliv zee5 voot mxplayer erosnow altbalaji
+gaana wynk jiosaavn hungama raaga
+cricbuzz espncricinfo sportskeeda mykhel
+justdial sulekha urbancompany housing magicbricks nobroker commonfloor
+olx quikr cars24 cardekho zigwheels bikewale carwale
+adobe atlassian shopify snowflake databricks palantir
+crowdstrike sentinelone paloaltonetworks fortinet checkpoint sophos
+kaspersky bitdefender malwarebytes eset trendmicro mcafee norton
+okta duosecurity onelogin auth0 keycloak
+lastpass bitwarden dashlane keeper nordpass
+protonmail tutanota fastmail zoho hushmail
+nordvpn expressvpn surfshark mullvad privateinternetaccess
+torproject eff privacyinternational accessnow
+w3 ietf iana icann ripe arin apnic afrinic lacnic
+verisign godaddy namecheap gandi hover porkbun dynadot
+squarespace hostinger bluehost siteground dreamhost hostgator
+wpengine kinsta flywheel pantheon

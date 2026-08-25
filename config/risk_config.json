@@ -1,0 +1,187 @@
+{
+  "_comment": "Single source of truth for all tunable risk policy. Edit this file, restart the API. No weights or thresholds are hardcoded anywhere else.",
+  "version": "1.0.0",
+  "weights": {
+    "_comment": "Relative importance of each independent signal. Need not sum to 1.0 - the engine normalises by (weight x confidence) of the signals that actually reported.",
+    "threat_intel": 0.4,
+    "dga": 0.35,
+    "lexical": 0.25
+  },
+  "threat_intel": {
+    "_comment": "How a threat-intelligence verdict maps onto a 0-100 signal score. UNKNOWN scores 0 but is reported with confidence 0.0, which removes it from the weighted average entirely - it must never be read as evidence of safety.",
+    "verdict_scores": {
+      "MALICIOUS": 95,
+      "SUSPICIOUS": 60,
+      "TRUSTED": 0,
+      "UNKNOWN": 0
+    },
+    "parent_match_confidence_factor": 0.9
+  },
+  "dga": {
+    "_comment": "Parameters of the bigram-likelihood suspicion model. Terms are centred and combined through a logistic function. Retunable without touching code; rerun backend/scripts/evaluate_dga.py after changing them to see the effect on separation.",
+    "model_parameters": {
+      "weight_bigram": 1.1,
+      "weight_dictionary": 2.0,
+      "weight_digits": 3.0,
+      "bias": -2.2,
+      "dictionary_centre": 0.5,
+      "digit_centre": 0.1,
+      "z_clamp": 6.0,
+      "min_confident_length": 8,
+      "confidence_full": 0.8,
+      "confidence_short": 0.55,
+      "confidence_very_short": 0.3,
+      "shrinkage_length": 10.0,
+      "null_finding_confidence_factor": 0.45
+    },
+    "factor_thresholds": {
+      "high": 0.8,
+      "moderate": 0.5
+    }
+  },
+  "thresholds": {
+    "_comment": "Final risk score band boundaries, inclusive lower bound.",
+    "safe_max": 29,
+    "suspicious_max": 69,
+    "bands": [
+      {
+        "min": 0,
+        "max": 29,
+        "classification": "SAFE",
+        "decision": "ALLOW"
+      },
+      {
+        "min": 30,
+        "max": 69,
+        "classification": "SUSPICIOUS",
+        "decision": "MONITOR"
+      },
+      {
+        "min": 70,
+        "max": 100,
+        "classification": "MALICIOUS",
+        "decision": "BLOCK"
+      }
+    ]
+  },
+  "overrides": {
+    "_comment": "Policy rules applied AFTER weighted fusion. Each one that fires is recorded as a visible risk factor so the explanation always matches the arithmetic.",
+    "ti_malicious_floor": {
+      "enabled": true,
+      "min_confidence": 0.85,
+      "floor": 85,
+      "description": "A high-confidence threat-intelligence match raises the score to at least this floor. It is a floor, not a short-circuit: lexical and DGA evidence can still push it higher.",
+      "_comment": "0.85 rather than 0.90 so that a parent-domain match on a high-confidence indicator still applies the floor: parent matches carry a 0.9 confidence penalty, so a 0.99 indicator lands at 0.891."
+    },
+    "brand_impersonation_floor": {
+      "enabled": true,
+      "floor": 60,
+      "description": "A domain borrowing a brand name it does not own (token match or typosquat) is strong standalone evidence. Lexical points alone under-weight it: paypa1.com reaches only ~28 lexical points, which at 0.25 weight would land in SAFE."
+    },
+    "ti_trusted_ceiling": {
+      "enabled": true,
+      "ceiling": 25,
+      "description": "A domain on the trusted allowlist is capped, preventing false positives on legitimate domains with unusual lexical shape."
+    },
+    "corroboration_bonus": {
+      "enabled": true,
+      "signal_score_threshold": 70,
+      "min_signals": 2,
+      "bonus": 8,
+      "description": "Two or more independent signals independently scoring high is itself evidence."
+    },
+    "suspicious_tld_dga_bonus": {
+      "enabled": true,
+      "dga_threshold": 0.8,
+      "bonus": 5,
+      "description": "A high DGA score on an abuse-heavy TLD is a well-documented combination."
+    }
+  },
+  "unknown_domain_policy": {
+    "_comment": "A threat-intelligence MISS is an absence of evidence, not evidence of safety. On UNKNOWN the provider reports confidence 0.0 and is dropped from the weighted average entirely, so DGA and lexical signals alone determine the score. This is deliberate and is the core of adaptive detection.",
+    "treat_unknown_as_safe": false,
+    "unknown_confidence": 0.0
+  },
+  "lexical": {
+    "_comment": "Thresholds for the lexical sub-scorer. Each rule contributes a bounded number of points; the sub-score is capped at 100.",
+    "max_score": 100,
+    "rules": {
+      "entropy_high": {
+        "threshold": 3.6,
+        "points": 18
+      },
+      "entropy_very_high": {
+        "threshold": 4.1,
+        "points": 12
+      },
+      "normalized_entropy_high": {
+        "threshold": 0.82,
+        "min_sld_length": 12,
+        "points": 10,
+        "_comment": "Gated on length: in a short label almost every character is distinct, so normalised entropy is ~1.0 for perfectly ordinary names like github."
+      },
+      "digit_ratio_high": {
+        "threshold": 0.2,
+        "points": 14
+      },
+      "digit_ratio_very_high": {
+        "threshold": 0.4,
+        "points": 10
+      },
+      "length_long": {
+        "threshold": 25,
+        "points": 8
+      },
+      "length_very_long": {
+        "threshold": 40,
+        "points": 8
+      },
+      "hyphen_many": {
+        "threshold": 3,
+        "points": 10
+      },
+      "subdomain_deep": {
+        "threshold": 4,
+        "points": 10
+      },
+      "consonant_run_long": {
+        "threshold": 5,
+        "points": 12
+      },
+      "vowel_ratio_low": {
+        "threshold": 0.2,
+        "points": 12
+      },
+      "no_dictionary_words": {
+        "threshold": 0.2,
+        "min_sld_length": 10,
+        "points": 14,
+        "_comment": "Gated on length because a compact dictionary inevitably misses real words (e.g. 'wikipedia'). The bigram model is the stronger discriminator."
+      },
+      "suspicious_tld": {
+        "points_scale": 20
+      },
+      "suspicious_keyword": {
+        "points_scale": 16,
+        "points_per_extra": 4,
+        "max_points": 20,
+        "_comment": "Points scale with the weight of the strongest keyword matched, so generic tokens like 'mail' contribute far less than 'verify' or 'suspended'."
+      },
+      "brand_impersonation": {
+        "points": 25
+      },
+      "punycode": {
+        "points": 15
+      },
+      "ip_literal": {
+        "points": 20
+      }
+    },
+    "confidence": {
+      "_comment": "Short domains carry less lexical information, so the signal reports lower confidence rather than a misleadingly precise score.",
+      "min_informative_length": 6,
+      "base": 0.85,
+      "short_domain_penalty": 0.45
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "_comment": "TLD abuse weighting, 0.0 (neutral) to 1.0 (heavily abused). Derived from publicly reported abuse-rate rankings of gTLDs. A suspicious TLD is a weak signal on its own and only ever contributes a fraction of the lexical sub-score.",
+  "weights": {
+    "tk": 1.0, "ml": 1.0, "ga": 1.0, "cf": 1.0, "gq": 1.0,
+    "top": 0.9, "xyz": 0.8, "buzz": 0.85, "cyou": 0.9, "sbs": 0.9,
+    "icu": 0.85, "rest": 0.7, "click": 0.85, "link": 0.7, "work": 0.7,
+    "loan": 0.9, "men": 0.9, "review": 0.8, "party": 0.9, "date": 0.85,
+    "racing": 0.85, "win": 0.9, "bid": 0.85, "stream": 0.8, "download": 0.9,
+    "science": 0.85, "cricket": 0.85, "accountant": 0.9, "trade": 0.8,
+    "webcam": 0.8, "country": 0.8, "kim": 0.7, "mom": 0.7, "lol": 0.7,
+    "monster": 0.8, "quest": 0.75, "cam": 0.75, "surf": 0.75, "fit": 0.7,
+    "best": 0.7, "live": 0.5, "online": 0.6, "site": 0.6, "website": 0.55,
+    "space": 0.65, "fun": 0.65, "store": 0.5, "shop": 0.45, "pw": 0.8,
+    "cc": 0.6, "su": 0.75, "zip": 0.85, "mov": 0.8, "info": 0.45,
+    "biz": 0.4, "us": 0.25, "club": 0.6, "vip": 0.7, "life": 0.5,
+    "world": 0.5, "digital": 0.4, "email": 0.5, "support": 0.5, "help": 0.5
+  }
+}

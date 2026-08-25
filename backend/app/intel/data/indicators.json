@@ -1,0 +1,176 @@
+{
+  "_comment": "SYNTHETIC threat-intelligence dataset for the prototype. Every indicator below is fabricated and uses an RFC 2606 / RFC 6761 reserved namespace (.test, .invalid, .example) or the reserved example.com/.org/.net domains. NO REAL MALICIOUS INFRASTRUCTURE IS LISTED, and the platform never resolves or contacts any of them. In production this file is replaced by a live feed behind the same ThreatIntelProvider interface.",
+  "source": "local_dataset_v1",
+  "last_updated": "2026-08-20",
+  "format_note": "An indicator matches the domain itself and any subdomain of it (parent-domain match). More specific indicators always win over less specific ones.",
+  "indicators": [
+    {
+      "indicator": "malware-c2-panel.test",
+      "verdict": "MALICIOUS",
+      "categories": ["c2", "malware"],
+      "confidence": 0.98,
+      "first_seen": "2026-06-14",
+      "description": "Command-and-control panel for a commodity RAT family."
+    },
+    {
+      "indicator": "botnet-controller.test",
+      "verdict": "MALICIOUS",
+      "categories": ["c2", "botnet"],
+      "confidence": 0.97,
+      "first_seen": "2026-05-02",
+      "description": "Botnet controller node observed issuing tasking to infected hosts."
+    },
+    {
+      "indicator": "ransom-payment-portal.test",
+      "verdict": "MALICIOUS",
+      "categories": ["ransomware"],
+      "confidence": 0.99,
+      "first_seen": "2026-07-21",
+      "description": "Ransomware payment and negotiation portal."
+    },
+    {
+      "indicator": "data-exfil-drop.test",
+      "verdict": "MALICIOUS",
+      "categories": ["exfiltration", "c2"],
+      "confidence": 0.95,
+      "first_seen": "2026-07-03",
+      "description": "Staging endpoint receiving exfiltrated archives over HTTPS."
+    },
+    {
+      "indicator": "credential-harvest.invalid",
+      "verdict": "MALICIOUS",
+      "categories": ["phishing", "credential_theft"],
+      "confidence": 0.96,
+      "first_seen": "2026-06-28",
+      "description": "Credential-harvesting kit imitating a webmail login."
+    },
+    {
+      "indicator": "secure-bank-verify.invalid",
+      "verdict": "MALICIOUS",
+      "categories": ["phishing", "financial"],
+      "confidence": 0.97,
+      "first_seen": "2026-08-01",
+      "description": "Banking phishing page requesting net-banking credentials and OTP."
+    },
+    {
+      "indicator": "account-suspended-alert.invalid",
+      "verdict": "MALICIOUS",
+      "categories": ["phishing"],
+      "confidence": 0.94,
+      "first_seen": "2026-07-15",
+      "description": "Account-suspension lure leading to a credential form."
+    },
+    {
+      "indicator": "fake-invoice-portal.test",
+      "verdict": "MALICIOUS",
+      "categories": ["phishing", "bec"],
+      "confidence": 0.92,
+      "first_seen": "2026-06-09",
+      "description": "Business-email-compromise invoice lure."
+    },
+    {
+      "indicator": "crypto-airdrop-claim.invalid",
+      "verdict": "MALICIOUS",
+      "categories": ["scam", "crypto"],
+      "confidence": 0.93,
+      "first_seen": "2026-08-05",
+      "description": "Wallet-drainer posing as a token airdrop."
+    },
+    {
+      "indicator": "exploit-kit-gate.test",
+      "verdict": "MALICIOUS",
+      "categories": ["exploit_kit", "malware"],
+      "confidence": 0.95,
+      "first_seen": "2026-05-30",
+      "description": "Traffic-direction gate fronting an exploit kit."
+    },
+    {
+      "indicator": "dropper-stage2.test",
+      "verdict": "MALICIOUS",
+      "categories": ["malware", "loader"],
+      "confidence": 0.96,
+      "first_seen": "2026-07-11",
+      "description": "Second-stage payload host for a loader family."
+    },
+    {
+      "indicator": "cryptomine-pool.test",
+      "verdict": "MALICIOUS",
+      "categories": ["cryptomining"],
+      "confidence": 0.88,
+      "first_seen": "2026-04-18",
+      "description": "Mining pool used by unauthorised cryptojacking scripts."
+    },
+    {
+      "indicator": "tunnel-relay-node.test",
+      "verdict": "MALICIOUS",
+      "categories": ["dns_tunneling", "exfiltration"],
+      "confidence": 0.94,
+      "first_seen": "2026-06-22",
+      "description": "Authoritative name server for a DNS-tunnelling channel."
+    },
+    {
+      "indicator": "x7k2m9q4wz1p.test",
+      "verdict": "MALICIOUS",
+      "categories": ["dga", "c2"],
+      "confidence": 0.91,
+      "first_seen": "2026-08-12",
+      "description": "Previously observed DGA-generated C2 rendezvous domain."
+    },
+    {
+      "indicator": "vbnmqwrtzxcv.invalid",
+      "verdict": "MALICIOUS",
+      "categories": ["dga", "botnet"],
+      "confidence": 0.9,
+      "first_seen": "2026-08-14",
+      "description": "DGA cluster associated with a banking trojan."
+    },
+    {
+      "indicator": "compromised-host.example.com",
+      "verdict": "MALICIOUS",
+      "categories": ["compromised", "malware"],
+      "confidence": 0.93,
+      "first_seen": "2026-08-18",
+      "description": "Specific compromised host on an otherwise reputable domain. Demonstrates that a precise indicator overrides a broader allowlist entry."
+    },
+    {
+      "indicator": "spam-redirect.test",
+      "verdict": "SUSPICIOUS",
+      "categories": ["spam", "redirector"],
+      "confidence": 0.72,
+      "first_seen": "2026-07-27",
+      "description": "Open redirector repeatedly seen in bulk-mail campaigns."
+    },
+    {
+      "indicator": "adware-bundle.test",
+      "verdict": "SUSPICIOUS",
+      "categories": ["adware", "pup"],
+      "confidence": 0.68,
+      "first_seen": "2026-05-16",
+      "description": "Distributes bundled potentially-unwanted software."
+    },
+    {
+      "indicator": "url-shortener-abuse.test",
+      "verdict": "SUSPICIOUS",
+      "categories": ["redirector"],
+      "confidence": 0.6,
+      "first_seen": "2026-06-30",
+      "description": "Shortener with a high observed ratio of malicious destinations."
+    },
+    {
+      "indicator": "newly-registered-bulk.test",
+      "verdict": "SUSPICIOUS",
+      "categories": ["newly_registered"],
+      "confidence": 0.55,
+      "first_seen": "2026-08-19",
+      "description": "Registered days ago within a bulk registration cluster."
+    },
+    {
+      "indicator": "parked-monetised.test",
+      "verdict": "SUSPICIOUS",
+      "categories": ["parked"],
+      "confidence": 0.5,
+      "first_seen": "2026-03-11",
+      "description": "Parked and monetised; low but non-zero abuse association."
+    }
+  ]
+}

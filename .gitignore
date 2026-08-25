@@ -1,0 +1,21 @@
+# virtualenv
+.venv/
+venv/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# generated at runtime - the event log is rebuilt by
+# backend/scripts/seed_demo_events.py
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+
+# local environment / editor
+.env
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,23 @@
+{
+  "_comment": "Compact multi-label public-suffix list. PROTOTYPE SIMPLIFICATION: the production system should use the full Mozilla Public Suffix List via the `publicsuffix2` package. This covers the suffixes that matter for our demo and for Indian/UK/AU domains.",
+  "multi_label_suffixes": [
+    "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk", "net.uk", "sch.uk",
+    "co.in", "net.in", "org.in", "gen.in", "firm.in", "ind.in", "ac.in",
+    "edu.in", "res.in", "gov.in", "mil.in", "nic.in",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au",
+    "com.br", "net.br", "org.br", "gov.br",
+    "co.jp", "or.jp", "ne.jp", "ac.jp", "go.jp",
+    "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn",
+    "co.za", "org.za", "net.za", "gov.za",
+    "com.sg", "com.my", "com.hk", "com.tw", "com.mx", "com.ar", "com.tr",
+    "co.nz", "net.nz", "org.nz", "govt.nz",
+    "co.kr", "or.kr", "go.kr",
+    "com.ru", "net.ru", "org.ru",
+    "co.il", "org.il", "ac.il", "gov.il",
+    "com.pk", "com.bd", "com.np", "com.lk",
+    "github.io", "gitlab.io", "pages.dev", "workers.dev", "vercel.app",
+    "netlify.app", "herokuapp.com", "azurewebsites.net", "cloudfront.net",
+    "s3.amazonaws.com", "blogspot.com", "wordpress.com", "web.app",
+    "firebaseapp.com", "appspot.com", "r2.dev", "onrender.com"
+  ]
+}

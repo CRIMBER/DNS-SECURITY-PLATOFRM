@@ -1,0 +1,116 @@
+"""FastAPI application factory.
+
+One process serves both the JSON API under ``/api`` and the static dashboard at
+``/``. That removes CORS configuration, a second server, and a build step from
+the demo, which matters more than architectural purity at this size.
+"""
+
+import logging
+import traceback
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .api import routes
+from .config import get_risk_config, get_settings
+from .core.normalizer import DomainValidationError
+from .storage.db import init_db
+
+logger = logging.getLogger("dnssec")
+
+
+def _error(status: int, code: str, message: str, detail: str = None) -> JSONResponse:
+    body = {"error": {"code": code, "message": message, "detail": detail}}
+    return JSONResponse(status_code=status, content=body)
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    risk_config = get_risk_config()
+
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.version,
+        description=(
+            "Prototype 1. Analyses domain names using lexical features, a local "
+            "threat-intelligence dataset and a transparent suspicion model, then "
+            "fuses those independent signals into an explained ALLOW / MONITOR / "
+            "BLOCK decision.\n\n"
+            "This prototype performs no DNS resolution and no outbound network "
+            "traffic; it analyses domain strings offline."
+        ),
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+    )
+
+    app.state.settings = settings
+    app.state.risk_config = risk_config
+
+    # Create the events table before the first request can arrive.
+    init_db()
+
+    # -- error handling ----------------------------------------------------
+    # A judge typing something strange must never see a stack trace.
+
+    @app.exception_handler(DomainValidationError)
+    async def _handle_domain_error(request: Request, exc: DomainValidationError):
+        return _error(400, exc.code, exc.message)
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_validation_error(request: Request, exc: RequestValidationError):
+        first = exc.errors()[0] if exc.errors() else {}
+        field = ".".join(str(p) for p in first.get("loc", [])[1:]) or "request"
+        return _error(
+            422,
+            "INVALID_REQUEST",
+            "The request body was not valid.",
+            "{}: {}".format(field, first.get("msg", "invalid value")),
+        )
+
+    @app.exception_handler(Exception)
+    async def _handle_unexpected(request: Request, exc: Exception):
+        logger.error(
+            "Unhandled error on %s: %s\n%s",
+            request.url.path,
+            exc,
+            traceback.format_exc(),
+        )
+        return _error(
+            500,
+            "INTERNAL_ERROR",
+            "The analysis engine encountered an unexpected error.",
+            type(exc).__name__,
+        )
+
+    app.include_router(routes.router, prefix="/api")
+
+    # -- static dashboard --------------------------------------------------
+    frontend = settings.frontend_dir
+    if (frontend / "index.html").exists():
+        app.mount(
+            "/static", StaticFiles(directory=str(frontend)), name="static"
+        )
+
+        @app.get("/", include_in_schema=False)
+        async def _dashboard():
+            return FileResponse(str(frontend / "index.html"))
+
+    else:
+
+        @app.get("/", include_in_schema=False)
+        async def _no_dashboard():
+            return JSONResponse(
+                {
+                    "status": "api_only",
+                    "message": "Dashboard not built yet. API is live.",
+                    "docs": "/api/docs",
+                    "health": "/api/health",
+                }
+            )
+
+    return app
+
+
+app = create_app()

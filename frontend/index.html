@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DNS Security Platform</title>
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="wrap">
+
+    <header>
+      <div class="head-row">
+        <div>
+          <h1><span class="dot"></span>Adaptive DNS Security &amp; Threat Intelligence</h1>
+          <p class="subtitle">Prototype 1 &mdash; security operations console</p>
+        </div>
+        <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
+      </div>
+      <div class="status-line" id="statusLine">connecting to engine&hellip;</div>
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="analyse">Domain Analysis</button>
+        <button class="tab" data-tab="activity">Recent Activity</button>
+        <button class="tab" data-tab="analytics">Threat Analytics</button>
+      </nav>
+    </header>
+
+    <!-- ============================ OVERVIEW ============================ -->
+    <section class="view" id="view-overview">
+      <div class="tiles" id="tiles"></div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h2>Decision Breakdown</h2>
+          <div id="decisionChart" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Highest-Risk Domains Seen</h2>
+          <div id="topDomains"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Measured Performance</h2>
+        <div id="performance"></div>
+      </div>
+    </section>
+
+    <!-- ============================ ANALYSE ============================= -->
+    <section class="view hidden" id="view-analyse">
+      <div class="search">
+        <input type="text" id="domainInput" placeholder="Enter a domain, e.g. github.com"
+               autocomplete="off" spellcheck="false">
+        <button id="analyzeBtn">Analyse</button>
+      </div>
+
+      <div class="examples">
+        <span>Try:</span>
+        <button class="chip" data-domain="github.com">github.com</button>
+        <button class="chip" data-domain="malware-c2-panel.test">malware-c2-panel.test</button>
+        <button class="chip" data-domain="kq3v9z7jx1p8w.info">kq3v9z7jx1p8w.info</button>
+        <button class="chip" data-domain="hdfcbank-netbanking-verify.xyz">hdfcbank-netbanking-verify.xyz</button>
+        <button class="chip" data-domain="compromised-host.example.com">compromised-host.example.com</button>
+        <button class="chip" data-domain="paypa1.com">paypa1.com</button>
+        <button class="chip" data-domain="summerbridge.com">summerbridge.com</button>
+        <button class="chip" data-domain="example..com">example..com</button>
+      </div>
+
+      <div id="results"></div>
+    </section>
+
+    <!-- ============================ ACTIVITY ============================ -->
+    <section class="view hidden" id="view-activity">
+      <div class="filters">
+        <input type="text" id="eventSearch" placeholder="Filter by domain&hellip;" autocomplete="off">
+        <select id="classFilter">
+          <option value="">All classifications</option>
+          <option value="SAFE">Safe</option>
+          <option value="SUSPICIOUS">Suspicious</option>
+          <option value="MALICIOUS">Malicious</option>
+        </select>
+        <select id="decisionFilter">
+          <option value="">All decisions</option>
+          <option value="ALLOW">Allowed</option>
+          <option value="MONITOR">Monitored</option>
+          <option value="BLOCK">Blocked</option>
+        </select>
+        <span class="grow"></span>
+        <button class="ghost danger" id="clearBtn" title="Delete all stored events">Clear log</button>
+      </div>
+      <div class="panel">
+        <h2>Analysis Events <span class="muted" id="eventCount"></span></h2>
+        <div id="eventsTable"></div>
+      </div>
+    </section>
+
+    <!-- =========================== ANALYTICS ============================ -->
+    <section class="view hidden" id="view-analytics">
+      <div class="panel">
+        <h2>Risk Score Distribution</h2>
+        <div id="riskChart" class="chart"></div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h2>Threat Categories</h2>
+          <div id="categoryChart" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Threat-Intelligence Verdicts</h2>
+          <div id="verdictChart" class="chart"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Activity Over Time</h2>
+        <div id="activityChart" class="chart"></div>
+      </div>
+    </section>
+
+    <footer>
+      Every figure on this page is computed by the backend from stored analysis
+      events &mdash; nothing is hardcoded. This prototype performs no DNS
+      resolution and no outbound network traffic; it analyses domain strings
+      offline. The DGA model is a calibrated statistical model, not a trained
+      classifier, and no accuracy figure is claimed.
+    </footer>
+
+  </div>
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

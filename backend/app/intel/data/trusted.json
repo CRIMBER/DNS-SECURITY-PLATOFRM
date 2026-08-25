@@ -1,0 +1,28 @@
+{
+  "_comment": "Known-good allowlist. These are real, widely-used domains; listing them is safe because the platform never resolves or contacts anything. A trusted entry applies a score CEILING, not a bypass - a more specific malicious indicator still wins (see compromised-host.example.com in indicators.json). In production this would be sourced from a popularity ranking such as Tranco plus an organisation-specific allowlist.",
+  "source": "local_dataset_v1",
+  "last_updated": "2026-08-20",
+  "trusted_domains": [
+    "google.com", "google.co.in", "youtube.com", "gmail.com", "googleapis.com",
+    "microsoft.com", "microsoftonline.com", "office.com", "outlook.com", "live.com",
+    "apple.com", "icloud.com",
+    "amazon.com", "amazon.in", "amazonaws.com",
+    "facebook.com", "instagram.com", "whatsapp.com",
+    "wikipedia.org", "wikimedia.org",
+    "github.com", "gitlab.com", "stackoverflow.com", "stackexchange.com",
+    "cloudflare.com", "akamai.com", "fastly.com",
+    "linkedin.com", "x.com", "twitter.com", "reddit.com",
+    "netflix.com", "spotify.com", "adobe.com", "dropbox.com", "zoom.us",
+    "paypal.com", "visa.com", "mastercard.com",
+    "openai.com", "anthropic.com",
+    "mozilla.org", "python.org", "debian.org", "ubuntu.com", "kernel.org",
+    "bbc.co.uk", "nytimes.com", "reuters.com",
+    "example.com", "example.org", "example.net",
+    "irctc.co.in", "uidai.gov.in", "nic.in", "india.gov.in", "digilocker.gov.in",
+    "incometax.gov.in", "epfindia.gov.in", "cowin.gov.in", "mygov.in",
+    "sbi.co.in", "onlinesbi.sbi", "hdfcbank.com", "icicibank.com", "axisbank.com",
+    "kotak.com", "pnbindia.in", "bankofbaroda.in", "rbi.org.in", "npci.org.in",
+    "paytm.com", "phonepe.com", "flipkart.com", "zomato.com", "swiggy.com",
+    "jio.com", "airtel.in", "iitb.ac.in", "iitd.ac.in", "iisc.ac.in", "aicte-india.org"
+  ]
+}

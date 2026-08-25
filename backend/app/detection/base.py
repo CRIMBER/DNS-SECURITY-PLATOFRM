@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from ..core.features import DomainFeatures
+from ..core.classification import REGISTRANT_LABEL
 from ..core.signals import RiskFactor, Severity, Signal
 
 SIGNAL_NAME = "dga"
@@ -118,6 +119,8 @@ def dga_to_signal(result: DGAResult, config) -> Signal:
         )
 
     return Signal(
+        # Same span as the lexical shape rules - see Signal.scope_key.
+        scope_key=REGISTRANT_LABEL,
         name=SIGNAL_NAME,
         score=score_100,
         confidence=result.confidence,

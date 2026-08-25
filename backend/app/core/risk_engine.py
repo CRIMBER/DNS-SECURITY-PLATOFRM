@@ -252,7 +252,21 @@ class RiskEngine:
             high_signals = [
                 s for s in signals if s.is_informative and s.score >= threshold
             ]
-            if len(high_signals) >= int(rule.get("min_signals", 2)):
+            # INDEPENDENCE: agreement only counts when the signals read
+            # different evidence. The DGA model and the lexical shape rules
+            # both read the registrant label and share two inputs outright, so
+            # a high score from both is one observation reported twice, not two
+            # observations agreeing. Counting it as corroboration paid a bonus
+            # for an echo - it fired on d1a2b3c4e5f6g7.cloudfront.net, where the
+            # only evidence of any kind was the shape of a CDN distribution id.
+            #
+            # Signals that read no span of the name (threat intelligence reads
+            # a database, behavioural reads history) are independent of the
+            # name-derived ones and of each other, so each counts separately.
+            distinct_evidence = len({
+                s.scope_key or "signal:" + s.name for s in high_signals
+            })
+            if distinct_evidence >= int(rule.get("min_signals", 2)):
                 bonus = float(rule.get("bonus", 8))
                 score = move(
                     clamp(score + bonus),

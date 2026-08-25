@@ -87,6 +87,23 @@ class Signal:
     metadata: Dict[str, Any] = field(default_factory=dict)
     """Signal-specific detail passed through to the API response."""
 
+    scope_key: str = ""
+    """Which span of the name this signal actually read.
+
+    Two signals that read the SAME span are not independent evidence, however
+    different their methods look. The DGA model and the lexical shape rules
+    both read the registrant label and share two inputs outright (dictionary
+    coverage and digit ratio), so when both scored high on
+    ``d1a2b3c4e5f6g7.cloudfront.net`` the corroboration bonus paid out +8 for
+    "multiple independent signals agree" - rewarding one piece of evidence
+    counted twice.
+
+    Recording the span lets the risk engine tell genuine corroboration from
+    an echo. Empty means the signal did not read a span of the name at all
+    (threat intelligence reads a database; behavioural reads history), and
+    such signals are always independent of the name-derived ones.
+    """
+
     @property
     def is_informative(self) -> bool:
         return self.confidence > 0.0

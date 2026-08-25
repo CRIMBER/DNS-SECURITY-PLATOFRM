@@ -234,6 +234,23 @@ class EventModel(BaseModel):
     overrides_applied: List[str] = Field(default_factory=list)
     source: str
 
+    # DNS-gateway fields. Null/false on plain analysis events.
+    event_type: str = Field(
+        default="analysis",
+        description="'dns' for a query that entered the gateway, 'analysis' for "
+        "a domain submitted through the console or API.",
+    )
+    query_type: Optional[str] = None
+    query_class: Optional[str] = None
+    client_address: Optional[str] = None
+    blocked: bool = False
+    upstream_used: bool = False
+    cache_hit: bool = False
+    response_code: Optional[str] = None
+    block_policy: Optional[str] = None
+    dns_upstream_time_ms: Optional[float] = None
+    total_gateway_time_ms: Optional[float] = None
+
 
 class EventsResponse(BaseModel):
     events: List[EventModel]

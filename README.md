@@ -1,15 +1,18 @@
 # AI-Powered Adaptive DNS Security & Threat Intelligence Platform
 
-**Prototype 1** — Smart India Hackathon internal selection.
+Smart India Hackathon internal selection.
 
 A DNS security layer that analyses a domain using several independent signals,
-fuses them into a 0–100 risk score, and returns an explained
-**ALLOW / MONITOR / BLOCK** decision.
+fuses them into a 0–100 risk score, returns an explained
+**ALLOW / MONITOR / BLOCK** decision — and **enforces that decision on real DNS
+traffic** through a local DNS gateway.
 
-> **Scope honesty.** This prototype performs **no DNS resolution and no outbound
-> network traffic.** It analyses domain strings offline. See
-> [Current vs planned](#current-prototype-vs-planned-extensions) for exactly what
-> is and is not implemented.
+> **Scope honesty.** The gateway resolves allowed queries through the configured
+> upstream resolver and returns a deliberate block response for blocked ones. It
+> makes no other outbound connections: it never issues HTTP requests to a queried
+> domain and never fetches content from one. It is UDP-only and intended for
+> local use. See [Current vs planned](#current-prototype-vs-planned-extensions)
+> for exactly what is and is not implemented.
 
 ---
 
@@ -32,6 +35,17 @@ Then open:
 | Dashboard | http://127.0.0.1:8000/ |
 | API docs (Swagger) | http://127.0.0.1:8000/api/docs |
 | Health | http://127.0.0.1:8000/api/health |
+| DNS gateway | `127.0.0.1:5353/udp` |
+
+**If the gateway will not bind**, port 5353 is also mDNS/Bonjour and is reserved
+on some Windows systems. The gateway reports this clearly instead of crashing,
+and the HTTP API keeps running. Pick another port:
+
+```bash
+DNS_LISTEN_PORT=5354 python run.py          # macOS/Linux
+set DNS_LISTEN_PORT=5354 && python run.py   # Windows cmd
+$env:DNS_LISTEN_PORT=5354; python run.py    # PowerShell
+```
 
 Run the tests:
 
@@ -202,8 +216,22 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
   `POST /api/debug/features`, `POST /api/intel/lookup`, `POST /api/debug/dga`
 - Structured error handling with stable error codes; no stack traces reach the
   client
-- 233 passing tests, including the three demonstration scenarios as
-  executable assertions (`backend/tests/test_scenarios.py`)
+- 264 passing tests, including the three demonstration scenarios and 31 DNS
+  integration tests that bind real sockets and exchange real DNS packets
+  (`backend/tests/test_scenarios.py`, `test_dns_integration.py`)
+
+### DNS gateway limitations (current, deliberate)
+
+- **UDP only.** DNS over TCP is not implemented. Responses that exceed the UDP
+  payload size, and clients that retry over TCP, are not served.
+- **No DNSSEC validation.** Upstream responses are forwarded as received.
+- **Analysis runs synchronously on the event loop.** ~3–8 ms of CPU per query.
+  Fine at demo rates; the extension point is `run_in_executor`. No throughput
+  figure is claimed because none has been measured.
+- **No negative caching.** Responses carrying no TTL-bearing records are simply
+  not cached.
+- **Local prototype.** Bound to loopback by default and not intended to be
+  exposed to a network.
 
 ### Planned production extensions (not built)
 
@@ -214,6 +242,76 @@ deployment. Interfaces for these are declared in `backend/app/extensions/`; they
 contain **no fake implementations.**
 
 ---
+
+## DNS Security Gateway
+
+A real DNS server sits in front of the analysis engine. It does not duplicate
+any detection logic — it calls the same `AnalysisPipeline` that `/api/analyze`
+uses.
+
+```
+DNS client ──udp──► gateway ──► parse question ──► EXISTING analysis engine
+                                                          │
+                                            ┌─────────────┴──────────────┐
+                                          BLOCK                  ALLOW / MONITOR
+                                            │                            │
+                                    NXDOMAIN response          cache → upstream
+                                            │                            │
+                                            └──────────► client ◄────────┘
+```
+
+**Try it** (with the server running):
+
+```bash
+python backend/scripts/dns_client_demo.py            # scripted demo
+python backend/scripts/dns_client_demo.py github.com A
+dig @127.0.0.1 -p 5353 github.com                    # dig works identically
+nslookup -port=5353 github.com 127.0.0.1
+```
+
+### Design decisions worth knowing
+
+**Parse for inspection, forward raw bytes.** For an allowed query the client's
+original query bytes go upstream and the upstream's raw response bytes come
+back. We only parse to read the question. This avoids an entire class of
+re-serialisation bugs (name compression, EDNS0, unusual RDATA) and makes it a
+genuine forwarder. A packet is constructed by us only for a block, where we
+control the whole response.
+
+**The cache stores answers, never decisions.** Every query runs the full
+analysis *first*; the cache is only reached on the allow branch. A domain that
+becomes blocked is blocked on its very next query, because a blocked query never
+reaches the cache at all. A test asserts this by flipping the decision on a
+domain whose answer is already cached.
+
+**The decision always precedes resolution.** There is exactly one call site for
+the upstream resolver, on the far side of the decision branch, so no code path
+can forward a query that was not analysed. Tests assert a blocked query produced
+**zero** upstream calls, not merely the right response code.
+
+**Blocked queries are answered, not dropped.** A dropped query looks like a
+network fault and makes the control invisible. `DNS_BLOCK_MODE` selects
+`NXDOMAIN` (default) or `REFUSED`. `SINKHOLE` is declared but deliberately not
+implemented — it needs per-record-type answers and a sink address, and a
+half-working sinkhole is worse than an honest gap.
+
+**Privacy.** `DNS_LOG_CLIENT_IP` defaults to `loopback_only`, so a local
+prototype stays useful without accumulating the network addresses of real users.
+`none` and `always` are the other options.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DNS_ENABLED` | `true` | Run the gateway at all |
+| `DNS_LISTEN_HOST` / `DNS_LISTEN_PORT` | `127.0.0.1` / `5353` | Listener |
+| `UPSTREAM_DNS_HOST` / `UPSTREAM_DNS_PORT` | `1.1.1.1` / `53` | Upstream resolver |
+| `DNS_BLOCK_MODE` | `NXDOMAIN` | `NXDOMAIN` or `REFUSED` |
+| `DNS_CACHE_ENABLED` / `DNS_CACHE_MAX_TTL` | `true` / `300` | Answer cache |
+| `DNS_LOG_CLIENT_IP` | `loopback_only` | `none`, `loopback_only`, `always` |
+
+The upstream resolver is read from settings in exactly one place, so no provider
+is hardcoded across the codebase.
 
 ## Demonstration scenarios
 
@@ -251,9 +349,27 @@ is not algorithmically generated, which is why more than one signal exists.
   character-frequency model can see them; closing that gap needs a different
   class of model. A test asserts the limitation so it stays visible rather than
   being quietly forgotten.
-- Timings reported by the API are measured with `time.perf_counter()` on the
-  machine serving the request. Feature extraction currently measures ~0.3–0.6 ms
-  locally. No latency target is claimed.
+- **Timings are measured, never asserted**, with `time.perf_counter()`, and the
+  three that matter are reported separately: `analysis_time_ms`,
+  `dns_upstream_time_ms` and `total_gateway_time_ms`. Do not conflate them.
+  On this development machine, over 22 real DNS queries:
+
+  | | measured |
+  |---|---|
+  | analysis (median) | ~6 ms |
+  | upstream resolution (mean, cache misses) | ~68 ms |
+  | end-to-end, blocked query | ~5 ms |
+  | end-to-end, resolved query (mean) | ~50 ms |
+
+  **No sub-100 ms end-to-end claim is made.** End-to-end latency for an allowed
+  query is dominated by the upstream resolver, which is a public internet round
+  trip and outside our control. Blocked queries are much faster precisely
+  because they never touch the network.
+
+  Note also that an earlier figure of ~0.85 ms for analysis was measured in a
+  tight loop on an idle machine; the same code measures ~3–8 ms while the server
+  and gateway are running. Both are real; the DNS-path numbers above are the
+  meaningful ones and the tight-loop figure should not be quoted for the gateway.
 - Lexical features do **not** prove maliciousness. They contribute to a
   probabilistic suspicion signal, weighted at 0.25.
 - All malicious indicators used for testing are **synthetic**, using

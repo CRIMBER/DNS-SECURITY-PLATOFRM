@@ -72,15 +72,20 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.version,
         description=(
-            "Prototype 1. Analyses domain names using lexical features, a local "
-            "threat-intelligence dataset and a transparent suspicion model, then "
-            "fuses those independent signals into an explained ALLOW / MONITOR / "
-            "BLOCK decision.\n\n"
-            "This prototype performs no DNS resolution and no outbound network "
-            "traffic; it analyses domain strings offline."
+            "Analyses domain names using lexical features, a local "
+            "threat-intelligence dataset and a transparent statistical suspicion "
+            "model, fuses those independent signals into an explained ALLOW / "
+            "MONITOR / BLOCK decision, and enforces that decision on real DNS "
+            "traffic through a local DNS gateway. "
+            "The gateway resolves allowed queries through the configured "
+            "upstream resolver and returns a deliberate block response for "
+            "blocked ones. It makes no other outbound connections: it never "
+            "issues HTTP requests to a queried domain and never fetches content "
+            "from one."
         ),
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
 
     app.state.settings = settings

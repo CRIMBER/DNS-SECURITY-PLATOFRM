@@ -6,6 +6,8 @@
  *   GET  /api/events    the event log
  *   GET  /api/health    engine status and component provenance
  *
+ * The DNS Security view lives in js/dns.js and reads /api/dns/*.
+ *
  * There are no hardcoded statistics anywhere in this file.
  */
 
@@ -75,7 +77,7 @@
    * Tabs
    * ===================================================================== */
 
-  var VIEWS = ["overview", "analyse", "activity", "analytics"];
+  var VIEWS = ["overview", "analyse", "activity", "dns", "analytics"];
 
   function showTab(name) {
     VIEWS.forEach(function (view) {
@@ -86,6 +88,7 @@
     });
     if (name === "overview" || name === "analytics") loadStats();
     if (name === "activity") loadEvents();
+    if (name === "dns" && window.DNSView) window.DNSView.load();
     if (name === "analyse") $("domainInput").focus();
   }
 
@@ -537,6 +540,14 @@
       });
   }
 
+  /* Shared helpers for the DNS view module (js/dns.js). Exposed rather than
+     duplicated, so both views render badges, tiles and timestamps identically. */
+  window.UI = {
+    $: $, el: el, panel: panel, tile: tile,
+    scoreColor: scoreColor, shortTime: shortTime,
+    request: request, STATUS: STATUS, STATUS_LEGEND: STATUS_LEGEND
+  };
+
   /* =====================================================================
    * Wiring
    * ===================================================================== */
@@ -566,6 +577,7 @@
   $("refreshBtn").addEventListener("click", function () {
     loadStats();
     loadEvents();
+    if (window.DNSView) window.DNSView.load();
   });
 
   $("clearBtn").addEventListener("click", function () {
@@ -590,7 +602,10 @@
       " &middot; <b>" + ti.indicators_total + "</b> indicators, <b>" +
       ti.trusted_domains + "</b> trusted &middot; DGA <b>" + dga.model +
       "</b> (" + dga.corpus_size + "-label corpus, no accuracy claimed)" +
-      " &middot; fusion <b>" + health.components.risk_engine.fusion + "</b>";
+      " &middot; fusion <b>" + health.components.risk_engine.fusion + "</b>" +
+      " &middot; DNS gateway <b>" + health.components.dns_gateway.status + "</b>" +
+      (health.components.dns_gateway.listen_address
+        ? " on " + health.components.dns_gateway.listen_address : "");
   }).catch(function () {
     $("statusLine").textContent = "engine unreachable";
   });

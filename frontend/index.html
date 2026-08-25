@@ -13,7 +13,7 @@
       <div class="head-row">
         <div>
           <h1><span class="dot"></span>Adaptive DNS Security &amp; Threat Intelligence</h1>
-          <p class="subtitle">Prototype 1 &mdash; security operations console</p>
+          <p class="subtitle">Security operations console &mdash; analysis engine + DNS gateway</p>
         </div>
         <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
       </div>
@@ -22,6 +22,7 @@
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="analyse">Domain Analysis</button>
         <button class="tab" data-tab="activity">Recent Activity</button>
+        <button class="tab" data-tab="dns">DNS Security</button>
         <button class="tab" data-tab="analytics">Threat Analytics</button>
       </nav>
     </header>
@@ -95,6 +96,42 @@
       </div>
     </section>
 
+    <!-- ============================== DNS =============================== -->
+    <section class="view hidden" id="view-dns">
+      <div class="panel" id="dnsStatusPanel">
+        <h2>Gateway Status</h2>
+        <div id="dnsStatus"></div>
+      </div>
+
+      <div class="tiles" id="dnsTiles"></div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h2>DNS Decisions</h2>
+          <div id="dnsDecisionChart" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h2>Query Types</h2>
+          <div id="dnsTypeChart" class="chart"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Blocked Domains <span class="muted">and why they were blocked</span></h2>
+        <div id="dnsBlocked"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Recent DNS Requests <span class="muted" id="dnsEventCount"></span></h2>
+        <div id="dnsEventsTable"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Measured DNS Latency</h2>
+        <div id="dnsPerformance"></div>
+      </div>
+    </section>
+
     <!-- =========================== ANALYTICS ============================ -->
     <section class="view hidden" id="view-analytics">
       <div class="panel">
@@ -118,15 +155,18 @@
     </section>
 
     <footer>
-      Every figure on this page is computed by the backend from stored analysis
-      events &mdash; nothing is hardcoded. This prototype performs no DNS
-      resolution and no outbound network traffic; it analyses domain strings
-      offline. The DGA model is a calibrated statistical model, not a trained
+      Every figure on this page is computed by the backend from stored events
+      &mdash; nothing is hardcoded. The DNS gateway resolves allowed queries
+      through the configured upstream resolver and returns a deliberate block
+      response for blocked ones; it makes no other outbound connections and
+      never fetches content from a queried domain. The DGA component is a
+      calibrated statistical model (<code>bigram_llr_v1</code>), not a trained
       classifier, and no accuracy figure is claimed.
     </footer>
 
   </div>
   <script src="/static/js/charts.js"></script>
   <script src="/static/js/app.js"></script>
+  <script src="/static/js/dns.js"></script>
 </body>
 </html>

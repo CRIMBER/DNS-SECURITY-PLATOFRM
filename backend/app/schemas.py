@@ -260,3 +260,43 @@ class StatsResponse(BaseModel):
     top_risky_domains: List[Dict[str, Any]]
     activity: List[Dict[str, Any]]
     performance: Dict[str, Any]
+
+
+# -- DNS gateway (phase 2) --------------------------------------------------
+
+
+class DNSStatusResponse(BaseModel):
+    """Live state of the DNS gateway process."""
+
+    enabled: bool = Field(description="Whether the gateway is configured to run.")
+    running: bool = Field(
+        description="Whether the UDP socket is actually bound right now. False "
+        "with a bind_error means it was configured but could not start."
+    )
+    listen_address: Optional[str] = None
+    protocol: str = "udp"
+    bind_error: Optional[str] = None
+    upstream: Optional[Dict[str, Any]] = None
+    block_policy: Optional[str] = None
+    available_block_policies: List[str] = Field(default_factory=list)
+    unimplemented_block_policies: Dict[str, str] = Field(default_factory=dict)
+    cache: Optional[Dict[str, Any]] = None
+    stats: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="In-process counters since the gateway started. Historical "
+        "figures come from the event store, not from here.",
+    )
+
+
+class DNSStatsResponse(BaseModel):
+    """Aggregates over DNS gateway events only, never analysis requests."""
+
+    total_dns_requests: int
+    allowed: int
+    monitored: int
+    blocked: int
+    cache_hits: int
+    by_query_type: Dict[str, int]
+    by_response_code: Dict[str, int]
+    blocked_domains: List[Dict[str, Any]]
+    performance: Dict[str, Any]

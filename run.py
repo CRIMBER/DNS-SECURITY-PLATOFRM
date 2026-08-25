@@ -30,6 +30,14 @@ def main() -> None:
     print("  Dashboard : http://{}:{}/".format(settings.host, settings.port))
     print("  API docs  : http://{}:{}/api/docs".format(settings.host, settings.port))
     print("  Health    : http://{}:{}/api/health".format(settings.host, settings.port))
+    if settings.dns_enabled:
+        print("-" * 74)
+        print("  DNS gateway : {}/udp".format(settings.dns_listen_address))
+        print("  Upstream    : {}   block mode: {}".format(
+            settings.upstream_address, settings.dns_block_mode))
+        print("  Try         : python backend/scripts/dns_client_demo.py")
+        print("                dig @{} -p {} github.com".format(
+            settings.dns_listen_host, settings.dns_listen_port))
     print("=" * 74)
 
     uvicorn.run(

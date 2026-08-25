@@ -19,6 +19,8 @@ from ..core.lexical import score_lexical
 from ..core.normalizer import DomainValidationError, normalize
 from ..core.pipeline import AnalysisResult, get_pipeline
 from ..detection import dga_to_signal, get_dga_detector
+from ..dns_gateway import get_gateway
+from ..dns_gateway.policy import DECLARED_BUT_UNIMPLEMENTED, REGISTRY
 from ..intel import get_threat_intel_provider, intel_to_signal
 from ..schemas import (
     AnalyzeRequest,
@@ -29,6 +31,8 @@ from ..schemas import (
     EventsResponse,
     FeatureInspectionResponse,
     HealthResponse,
+    DNSStatsResponse,
+    DNSStatusResponse,
     IntelLookupResponse,
     StatsResponse,
 )
@@ -71,6 +75,7 @@ async def health() -> HealthResponse:
                 "bands": len(config.bands),
                 "fusion": "confidence_weighted_average",
             },
+            "dns_gateway": _dns_gateway_health(),
             "event_store": {
                 "status": "ok",
                 "backend": "sqlite",
@@ -272,8 +277,11 @@ async def list_events(
     ),
     decision: Optional[str] = Query(None, description="ALLOW | MONITOR | BLOCK"),
     q: Optional[str] = Query(None, description="Substring match on the domain."),
+    event_type: Optional[str] = Query(
+        None, description="analysis | dns. Omit for both."
+    ),
 ) -> EventsResponse:
-    """Recent analysis events, newest first."""
+    """Recent events, newest first. Covers both analysis and DNS events."""
     return EventsResponse(
         **get_event_repository().list_events(
             limit=limit,
@@ -281,6 +289,7 @@ async def list_events(
             classification=classification,
             decision=decision,
             query=q,
+            event_type=event_type,
         )
     )
 
@@ -300,3 +309,90 @@ async def clear_events():
     """
     deleted = get_event_repository().clear()
     return {"deleted": deleted, "message": "Event log cleared."}
+
+
+# -- DNS gateway ------------------------------------------------------------
+
+
+def _dns_gateway_health() -> dict:
+    """Honest gateway state for /api/health.
+
+    Reports 'disabled', 'error' or 'ok' - never 'ok' for a gateway that is not
+    actually bound to a socket.
+    """
+    settings = get_settings()
+    gateway = get_gateway()
+
+    if not settings.dns_enabled:
+        return {"status": "disabled", "reason": "DNS_ENABLED=false"}
+    if gateway is None:
+        return {
+            "status": "not_started",
+            "reason": "The gateway starts with the ASGI lifespan; it does not "
+                      "run under the test client or an imported app.",
+        }
+    if not gateway.running:
+        return {"status": "error", "reason": gateway.bind_error}
+    return {
+        "status": "ok",
+        "listen_address": gateway.listen_address,
+        "protocol": "udp",
+        "upstream": gateway.handler.resolver.describe()["address"],
+        "block_policy": gateway.handler.policy.name,
+        "queries_received": gateway.stats.queries_received,
+        "blocked": gateway.stats.blocked,
+    }
+
+
+@router.get("/dns/status", response_model=DNSStatusResponse, tags=["dns"])
+async def dns_status() -> DNSStatusResponse:
+    """Live DNS gateway state: listener, upstream, policy, cache and counters."""
+    settings = get_settings()
+    gateway = get_gateway()
+
+    base = {
+        "enabled": settings.dns_enabled,
+        "available_block_policies": sorted(REGISTRY),
+        "unimplemented_block_policies": DECLARED_BUT_UNIMPLEMENTED,
+    }
+
+    if gateway is None:
+        return DNSStatusResponse(
+            running=False,
+            bind_error=None if settings.dns_enabled else "Gateway is disabled.",
+            **base
+        )
+
+    status = gateway.status()
+    return DNSStatusResponse(
+        running=status["running"],
+        listen_address=status["listen_address"],
+        protocol=status["protocol"],
+        bind_error=status["bind_error"],
+        upstream=status["upstream"],
+        block_policy=status["block_policy"],
+        cache=status["cache"],
+        stats=status["stats"],
+        **base
+    )
+
+
+@router.get("/dns/stats", response_model=DNSStatsResponse, tags=["dns"])
+async def dns_stats() -> DNSStatsResponse:
+    """Statistics over DNS gateway events, computed from stored events."""
+    return DNSStatsResponse(**get_event_repository().dns_stats())
+
+
+@router.get("/dns/events", response_model=EventsResponse, tags=["dns"])
+async def dns_events(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    decision: Optional[str] = Query(None, description="ALLOW | MONITOR | BLOCK"),
+    q: Optional[str] = Query(None, description="Substring match on the domain."),
+) -> EventsResponse:
+    """Recent DNS gateway events only, newest first."""
+    return EventsResponse(
+        **get_event_repository().list_events(
+            limit=limit, offset=offset, decision=decision, query=q, event_type="dns"
+        )
+    )

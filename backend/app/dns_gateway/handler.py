@@ -39,6 +39,18 @@ logger = logging.getLogger("dnssec.gateway.handler")
 DNS_HEADER_SIZE = 12
 
 
+def _rcode_of(wire: bytes) -> str:
+    """Response code carried by a DNS message, for logging only.
+
+    Used on both the upstream and cache paths so one query is reported the
+    same way regardless of which served it.
+    """
+    try:
+        return dns.rcode.to_text(dns.message.from_wire(wire).rcode())
+    except dns.exception.DNSException:
+        return "UNKNOWN"
+
+
 class DNSRequestHandler:
     """Turns a DNS query packet into a policy-controlled DNS response."""
 
@@ -172,7 +184,13 @@ class DNSRequestHandler:
         cached = self.cache.get(key, query.id)
         if cached is not None:
             context.cache_hit = True
-            context.response_code = "NOERROR"
+            # Read the rcode back off the cached wire rather than assuming
+            # NOERROR. A cached NXDOMAIN is still an NXDOMAIN: the client was
+            # always served the correct bytes, but recording it as NOERROR
+            # misreported the same query differently depending on whether it
+            # happened to hit the cache, which corrupts the response-code
+            # analytics.
+            context.response_code = _rcode_of(cached)
             self._count("cache_hits")
             return cached, context
 
@@ -195,13 +213,7 @@ class DNSRequestHandler:
         context.dns_upstream_time_ms = (time.perf_counter() - upstream_started) * 1000.0
         context.upstream_used = True
         self.cache.put(key, response_wire)
-
-        try:
-            context.response_code = dns.rcode.to_text(
-                dns.message.from_wire(response_wire).rcode()
-            )
-        except dns.exception.DNSException:
-            context.response_code = "UNKNOWN"
+        context.response_code = _rcode_of(response_wire)
 
         return response_wire, context
 

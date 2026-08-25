@@ -347,6 +347,49 @@ class TestCaching:
             assert all(e["analysis_time_ms"] > 0 for e in events)
             assert events[0]["cache_hit"] is True
 
+    def test_cached_nxdomain_is_logged_as_nxdomain(self, run_gateway):
+        """A cache hit must be reported with the rcode it actually carries.
+
+        The client was always served the correct bytes, but the event log
+        hardcoded NOERROR on the cache path, so the same query was reported
+        differently depending on whether it happened to hit the cache. That
+        silently corrupted the response-code analytics.
+        """
+        def nxdomain(wire):
+            query = dns.message.from_wire(wire)
+            response = dns.message.make_response(query)
+            response.set_rcode(dns.rcode.NXDOMAIN)
+            # A real resolver returns NXDOMAIN with an SOA in the AUTHORITY
+            # section. That SOA carries a TTL, which is what makes the
+            # response cacheable at all - a bare NXDOMAIN is not cached and
+            # would never exercise this path.
+            response.authority.append(
+                dns.rrset.from_text(
+                    "example.", 300, dns.rdataclass.IN, dns.rdatatype.SOA,
+                    "ns.example. hostmaster.example. 1 7200 3600 1209600 300",
+                )
+            )
+            return response.to_wire()
+
+        resolver = StubUpstreamResolver(responder=nxdomain)
+        with run_gateway(resolver=resolver, cache_enabled=True) as (
+            client, gateway, repo, _
+        ):
+            first = client.query("nonexistent-name.example", "A")
+            second = client.query("nonexistent-name.example", "A")
+
+            assert first.rcode() == dns.rcode.NXDOMAIN
+            assert second.rcode() == dns.rcode.NXDOMAIN, "client bytes were always right"
+
+            events = repo.list_events(event_type="dns")["events"]
+            assert len(events) == 2
+            cached = next(e for e in events if e["cache_hit"])
+            fresh = next(e for e in events if not e["cache_hit"])
+            assert fresh["response_code"] == "NXDOMAIN"
+            assert cached["response_code"] == "NXDOMAIN", (
+                "a cached NXDOMAIN is still an NXDOMAIN"
+            )
+
     def test_different_query_types_are_cached_separately(self, run_gateway):
         with run_gateway(cache_enabled=True) as (client, gateway, repo, resolver):
             client.query("github.com", "A")

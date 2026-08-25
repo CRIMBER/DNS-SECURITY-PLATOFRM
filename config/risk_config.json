@@ -230,10 +230,11 @@
       }
     },
     "confidence": {
-      "_comment": "Short domains carry less lexical information, so the signal reports lower confidence rather than a misleadingly precise score.",
+      "_comment": "Short domains carry less lexical information, so the signal reports lower confidence rather than a misleadingly precise score. null_finding_confidence applies the same asymmetry used by threat_intel (UNKNOWN) and dga: when no lexical rule fires at all, the signal has found no anomaly, which is NOT evidence of safety. It reports confidence 0.0 and drops out of the weighted average entirely rather than voting a 0 score against independent evidence from behavioural, tunnelling, DGA or threat-intelligence signals.",
       "min_informative_length": 6,
       "base": 0.85,
-      "short_domain_penalty": 0.45
+      "short_domain_penalty": 0.45,
+      "null_finding_confidence": 0.0
     }
   }
 }

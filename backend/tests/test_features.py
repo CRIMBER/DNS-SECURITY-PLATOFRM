@@ -143,9 +143,33 @@ class TestLexicalScoring:
         assert signal.factors[0].code == "LEXICAL_CLEAN"
 
     def test_short_domain_lowers_confidence(self):
-        short = score_lexical(extract_features(normalize("bb.com")))
-        normal = score_lexical(extract_features(normalize("cloudflare.com")))
+        # Both domains fire the same single rule (SUSPICIOUS_TLD) for the same
+        # score, so the only variable left is label length. Compared against a
+        # clean pair this would prove nothing: a clean domain now abstains
+        # entirely, and 0.0 is not less than 0.0.
+        short = score_lexical(extract_features(normalize("bb.tk")))
+        normal = score_lexical(extract_features(normalize("cloudflare.tk")))
+        assert short.score == normal.score, "the finding must be held constant"
         assert short.confidence < normal.confidence
+
+    def test_clean_domain_abstains_rather_than_voting_safe(self):
+        """Absence of a lexical anomaly is not evidence of safety.
+
+        A clean name must drop out of the weighted average rather than
+        contribute a confident zero, which would dilute independent evidence
+        from the behavioural, tunnelling, DGA or threat-intelligence signals.
+        """
+        signal = score_lexical(extract_features(normalize("cloudflare.com")))
+        assert signal.score == 0.0
+        assert signal.confidence == 0.0
+        assert not signal.is_informative
+
+    def test_lexical_anomaly_still_reports_confidently(self):
+        """The asymmetry must not mute positive findings."""
+        signal = score_lexical(extract_features(normalize("secure-login-verify-account.tk")))
+        assert signal.score > 0.0
+        assert signal.confidence > 0.0
+        assert signal.is_informative
 
     def test_every_factor_has_an_explanation(self):
         signal = score_lexical(extract_features(normalize("paypal-verify-login.tk")))

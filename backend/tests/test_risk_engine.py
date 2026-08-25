@@ -88,6 +88,41 @@ class TestFusion:
         ])
         assert full.confidence > partial.confidence
 
+    def test_abstaining_lexical_cannot_dilute_behavioural_evidence(self, engine):
+        """A clean name must not bury an anomalous behaviour pattern.
+
+        This is the fan-out case: a domain whose name is entirely ordinary but
+        whose observed query pattern is not. When the lexical signal voted 0 at
+        0.85 confidence it dominated the average by sheer weight and the
+        finding vanished. Abstaining, it leaves the behavioural evidence
+        standing.
+        """
+        diluted = engine.assess([
+            signal("threat_intel", 0.0, 0.0, points=0.0),
+            signal("lexical", 0.0, 0.85, points=0.0),
+            signal("behavioral", 80.0, 0.8),
+        ])
+        clean = engine.assess([
+            signal("threat_intel", 0.0, 0.0, points=0.0),
+            signal("lexical", 0.0, 0.0, points=0.0),
+            signal("behavioral", 80.0, 0.8),
+        ])
+        assert clean.score > diluted.score
+        # With lexical abstaining, behavioural is the only signal reporting,
+        # so it drives the score outright.
+        assert clean.score == 80
+
+    def test_abstention_does_not_mute_a_positive_lexical_finding(self, engine):
+        """Only the null finding abstains; real anomalies still count."""
+        result = engine.assess([
+            signal("threat_intel", 0.0, 0.0, points=0.0),
+            signal("lexical", 60.0, 0.85),
+            signal("behavioral", 0.0, 0.0, points=0.0),
+        ])
+        lexical = next(s for s in result.signals if s.name == "lexical")
+        assert lexical.used_in_fusion
+        assert result.score == 60
+
 
 class TestExplanationIntegrity:
     """Factor contributions must always reconstruct the score."""

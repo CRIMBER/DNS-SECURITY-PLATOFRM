@@ -7,6 +7,12 @@ retuned after testing without editing code.
 
 This is a transparent rule-based scorer, not a machine-learning model, and it
 is labelled as such everywhere it surfaces.
+
+The signal is **asymmetric**, in line with every other signal in the engine:
+a lexical anomaly is positive evidence and contributes at its full
+score/confidence/weight, while the absence of any anomaly is an absence of
+evidence and reports confidence 0.0, abstaining from the fusion instead of
+voting a zero score against what the other signals observed.
 """
 
 from typing import List
@@ -334,13 +340,30 @@ def score_lexical(
         confidence = float(conf_cfg.get("short_domain_penalty", 0.45))
 
     if not factors:
+        # Asymmetric confidence: ABSENCE OF ANOMALY IS NOT EVIDENCE OF SAFETY.
+        # The same rule already governs a threat-intelligence miss (UNKNOWN ->
+        # 0.0) and a null DGA finding. Finding no lexical anomaly means this
+        # scorer has nothing to say - not that the domain is benign - because
+        # a name can be perfectly ordinary while the *behaviour* behind it is
+        # not. Reporting score 0 at full confidence made this signal cast a
+        # vote for safety that diluted independent evidence: a subdomain
+        # fan-out with a 100% NXDOMAIN rate scored 15/ALLOW purely because a
+        # clean-looking name outweighed the behavioural finding.
+        #
+        # So the signal abstains: confidence 0.0 removes it from BOTH sums of
+        # the weighted average, leaving the domain to be judged on the signals
+        # that did observe something. A positive lexical anomaly is unaffected
+        # and still contributes at its full score/confidence/weight.
+        confidence = float(conf_cfg.get("null_finding_confidence", 0.0))
         factors.append(
             RiskFactor(
                 code="LEXICAL_CLEAN",
                 label="No lexical anomalies detected",
                 severity=Severity.INFO,
                 detail="Length, entropy, character mix and structure are all "
-                "within the range seen in legitimate domains.",
+                "within the range seen in legitimate domains. This is an "
+                "absence of evidence, not evidence of safety, so this signal "
+                "abstains from the risk score rather than voting it down.",
                 raw_points=0.0,
             )
         )

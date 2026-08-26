@@ -23,6 +23,25 @@ from ..config import RiskConfig, get_risk_config
 from .signals import RiskFactor, Severity, Signal, clamp
 
 
+# How each signal is named in prose. The internal keys are config keys, not
+# things to show an analyst.
+SIGNAL_LABEL = {
+    "threat_intel": "threat-intelligence",
+    "dga": "DGA",
+    "lexical": "lexical",
+    "tunnel": "tunnelling",
+    "behavioral": "behavioural",
+}
+
+
+def _join_signals(names: List[str]) -> str:
+    """'behavioural', 'DGA and lexical', 'DGA, lexical and behavioural'."""
+    labels = [SIGNAL_LABEL.get(name, name) for name in names]
+    if len(labels) == 1:
+        return labels[0]
+    return ", ".join(labels[:-1]) + " and " + labels[-1]
+
+
 @dataclass
 class SignalSummary:
     """How one signal fed into the final score. Makes the maths auditable."""
@@ -343,11 +362,27 @@ class RiskEngine:
 
     # -- recommendation -----------------------------------------------------
 
-    def _recommend(self, decision: str, signals: List[Signal]) -> str:
+    def _recommend(
+        self, decision: str, signals: List[Signal],
+        summaries: List[SignalSummary],
+    ) -> str:
         by_name = {s.name: s for s in signals}
         ti = by_name.get("threat_intel")
         dga = by_name.get("dga")
         verdict = ti.metadata.get("verdict") if ti else "UNKNOWN"
+
+        # The ALLOW band spans three different situations, and one sentence
+        # cannot describe all of them without lying about at least two:
+        #
+        #   * a signal reported risk, but not enough of it to act on;
+        #   * every signal that had information found nothing;
+        #   * no signal had any information at all.
+        #
+        # Saying "no signal reported meaningful risk" in the first case
+        # contradicts the factor list printed directly beneath it, which
+        # shows the points that signal contributed.
+        contributing = [s.name for s in summaries if s.weighted_contribution > 0]
+        reported = [s.name for s in summaries if s.used_in_fusion]
 
         if decision == "BLOCK":
             if verdict == "MALICIOUS":
@@ -372,9 +407,31 @@ class RiskEngine:
                 "Allow but log and monitor. Evidence is mixed - review if this "
                 "domain reappears or is queried by multiple hosts."
             )
+        # -- ALLOW ----------------------------------------------------------
+        if contributing:
+            named = _join_signals(contributing)
+            if verdict == "TRUSTED":
+                return (
+                    "Allow. Domain is on the trusted allowlist, but the {} "
+                    "signal did report risk and its points are in the score "
+                    "below. The total stayed under the monitoring threshold; "
+                    "review if it recurs.".format(named)
+                )
+            return (
+                "Allow. The {} signal reported risk and its points are in the "
+                "score below, but the total stayed under the monitoring "
+                "threshold. Review if this domain recurs or is queried by "
+                "more hosts.".format(named)
+            )
+        if not reported:
+            return (
+                "Allow. No signal had any information about this name, so "
+                "nothing was measured. That is an absence of evidence, not "
+                "evidence of safety."
+            )
         if verdict == "TRUSTED":
             return "Allow. Domain is on the trusted allowlist."
-        return "Allow. No signal reported meaningful risk."
+        return "Allow. Every signal that had information reported no risk indicators."
 
     # -- entry point --------------------------------------------------------
 
@@ -430,5 +487,5 @@ class RiskEngine:
             factors=factors,
             signals=summaries,
             overrides_applied=applied,
-            recommended_action=self._recommend(decision, signals),
+            recommended_action=self._recommend(decision, signals, summaries),
         )

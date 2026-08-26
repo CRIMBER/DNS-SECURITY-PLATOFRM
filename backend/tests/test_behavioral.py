@@ -192,14 +192,19 @@ class TestRepositoryIsNotMemoised:
 
     def test_an_injected_repository_still_wins(self, tmp_path):
         from backend.app.detection.behavioral import HistoryBehavioralAnalyzer
-        from backend.app.storage.events import EventRepository, set_event_repository
+        from backend.app.storage.events import (
+            EventRepository, get_event_repository, set_event_repository,
+        )
 
         injected = EventRepository(path=tmp_path / "injected.db")
         analyzer = HistoryBehavioralAnalyzer(repository=injected)
-        original = None
+        # Restore what was actually there. Restoring None instead left the
+        # global empty, so the next get_event_repository() built one against
+        # the configured database - and every later test in the session wrote
+        # its traffic into the demo event log.
+        original = get_event_repository()
         try:
-            original = EventRepository(path=tmp_path / "global.db")
-            set_event_repository(original)
+            set_event_repository(EventRepository(path=tmp_path / "global.db"))
             assert analyzer.repository is injected
         finally:
-            set_event_repository(None)
+            set_event_repository(original)

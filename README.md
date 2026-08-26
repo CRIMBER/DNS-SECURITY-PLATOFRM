@@ -164,6 +164,8 @@ backend/scripts/
 backend/tests/               pytest suite
 backend/scripts/
   seed_demo_events.py        populates the log by running real analyses
+  dns_client_demo.py         sends real DNS queries through the gateway
+  check_dashboard_contract.py  renders the dashboard in a real browser
   validate_palette.py        data-viz palette validator (Python port)
 frontend/
   index.html  css/  js/      static dashboard, zero dependencies
@@ -174,9 +176,30 @@ frontend/
 ```bash
 python backend/scripts/seed_demo_events.py --reset   # real analyses, not fake rows
 python run.py
+python backend/scripts/dns_client_demo.py            # real queries -> gateway history
 ```
 
 Then open http://127.0.0.1:8000 and work through the three scenarios below.
+
+### Keeping the demo state clean
+
+The behavioural detector scores a domain by what it has DONE, reading the same
+event log everything else writes to. Twenty queries of one name inside the
+60-minute window is a burst by definition, so a morning of poking at the same
+handful of names leaves +26 behavioural findings that are entirely your own
+traffic. The detector is right; the history is yours.
+
+`--reset` above clears it. To keep verification runs out of the log in the
+first place, point them at a throwaway event store - the path is already
+configurable, so this needs no special mode:
+
+```bash
+DNSSEC_PORT=8001 DNSSEC_DB_PATH=/tmp/verify.db DNS_ENABLED=0 python run.py
+python -m backend.scripts.check_dashboard_contract --base http://127.0.0.1:8001
+```
+
+The test suite redirects the same setting for its own session, so `pytest`
+never writes into `data/platform.db`.
 
 ---
 
@@ -254,7 +277,7 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
   `GET /api/dns/events`
 - Structured error handling with stable error codes; no stack traces reach the
   client
-- 406 passing tests, including the three demonstration scenarios and 39 DNS
+- 492 passing tests, including the three demonstration scenarios and 39 DNS
   integration tests that bind real sockets and exchange real DNS packets
   (`backend/tests/test_scenarios.py`, `test_dns_integration.py`)
 

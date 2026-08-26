@@ -11,15 +11,25 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
-from backend.app.storage.events import EventRepository, set_event_repository
+from backend.app.storage.events import (
+    EventRepository, get_event_repository, set_event_repository,
+)
 
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
+    """A scenario-local event store, handed back cleanly afterwards.
+
+    Restoring None here left the global empty for every module that ran next,
+    which sent their analyses to the configured database instead.
+    """
     database = tmp_path_factory.mktemp("scenarios") / "test.db"
+    previous = get_event_repository()
     set_event_repository(EventRepository(path=database))
-    yield TestClient(create_app(), raise_server_exceptions=False)
-    set_event_repository(None)
+    try:
+        yield TestClient(create_app(), raise_server_exceptions=False)
+    finally:
+        set_event_repository(previous)
 
 
 def analyse(client, domain):

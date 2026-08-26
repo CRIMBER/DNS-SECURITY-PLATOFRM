@@ -229,3 +229,86 @@ class TestClassification:
         for score in (5.0, 50.0, 95.0):
             result = engine.assess([signal("dga", score, 1.0)])
             assert len(result.recommended_action) > 20
+
+
+class TestRecommendationAgreesWithTheFactorList:
+    """The recommendation must not contradict the evidence printed beneath it.
+
+    The ALLOW band covers three genuinely different situations, and one
+    sentence described all of them: "Allow. No signal reported meaningful
+    risk." A behavioural burst contributing +26 - visible as a factor
+    immediately below - was reported as no signal reporting anything.
+    """
+
+    def test_a_contributing_signal_is_named_not_denied(self, engine):
+        """Below the monitoring threshold, but something did fire."""
+        result = engine.assess([
+            signal("behavioral", 26.0, 0.85),
+            signal("threat_intel", 0.0, 0.9, metadata={"verdict": "UNKNOWN"}),
+        ])
+        assert result.decision == "ALLOW"
+        assert any(f.contribution > 0 for f in result.factors)
+        assert "no signal" not in result.recommended_action.lower()
+        assert "behavioural" in result.recommended_action.lower()
+
+    def test_a_trusted_domain_with_a_finding_still_names_it(self, engine):
+        result = engine.assess([
+            signal("behavioral", 26.0, 0.85),
+            signal("threat_intel", 0.0, 0.9, metadata={"verdict": "TRUSTED"}),
+        ])
+        assert result.decision == "ALLOW"
+        assert "allowlist" in result.recommended_action.lower()
+        assert "behavioural" in result.recommended_action.lower()
+
+    def test_signals_that_reported_nothing_are_described_as_such(self, engine):
+        result = engine.assess([
+            signal("threat_intel", 0.0, 0.9, metadata={"verdict": "UNKNOWN"}),
+        ])
+        assert result.decision == "ALLOW"
+        assert not any(f.contribution > 0 for f in result.factors)
+        assert "no risk indicators" in result.recommended_action.lower()
+
+    def test_total_abstention_is_not_called_an_absence_of_risk(self, engine):
+        """Nothing was measured. Saying "no risk was reported" would turn an
+        absence of evidence into evidence of safety, which is the one claim
+        this whole pipeline refuses to make."""
+        result = engine.assess([
+            signal("dga", 0.0, 0.0),
+            signal("lexical", 0.0, 0.0),
+            signal("threat_intel", 0.0, 0.0, metadata={"verdict": "UNKNOWN"}),
+        ])
+        assert result.decision == "ALLOW"
+        assert "had any information" in result.recommended_action.lower()
+        assert "absence of evidence" in result.recommended_action.lower()
+
+    def test_every_named_signal_actually_contributed(self, engine):
+        """Naming a signal that put no points on the board is the same
+        failure in the other direction."""
+        result = engine.assess([
+            signal("behavioral", 26.0, 0.85),
+            signal("dga", 0.0, 0.0),
+            signal("lexical", 0.0, 0.0),
+        ])
+        text = result.recommended_action.lower()
+        assert "behavioural" in text
+        assert "dga" not in text
+        assert "lexical" not in text
+
+    @pytest.mark.parametrize("signals,decision", [
+        ([("threat_intel", 95.0, 0.98)], "BLOCK"),
+        ([("dga", 100.0, 0.9)], "BLOCK"),
+        ([("lexical", 55.0, 0.85)], "MONITOR"),
+        ([("behavioral", 30.0, 0.85)], "MONITOR"),
+        ([("behavioral", 26.0, 0.85)], "ALLOW"),
+        ([("threat_intel", 0.0, 0.9)], "ALLOW"),
+    ])
+    def test_no_verdict_ever_denies_its_own_evidence(self, engine, signals, decision):
+        built = [signal(name, score, confidence) for name, score, confidence in signals]
+        result = engine.assess(built)
+        assert result.decision == decision
+        contributed = any(f.contribution > 0 for f in result.factors)
+        text = result.recommended_action.lower()
+        if contributed:
+            for denial in ("no signal reported", "no signal had",
+                           "reported no risk indicators"):
+                assert denial not in text, (decision, result.recommended_action)

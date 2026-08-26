@@ -12,15 +12,28 @@ console error, or hides a detector that abstained.
 
 Usage
 -----
-  1. start the platform:      python run.py
-  2. start a browser with remote debugging on port 9222, e.g.
+  1. start a browser with remote debugging, e.g.
         chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\\cdp
-  3. python -m backend.scripts.check_dashboard_contract
+  2. start an instance to check. Prefer an isolated one, so that verifying
+     the dashboard does not become history the behavioural detector reads
+     back during a demo:
+
+        set DNSSEC_PORT=8001
+        set DNSSEC_DB_PATH=%TEMP%\\verify-events.db
+        set DNS_ENABLED=0
+        python run.py
+
+  3. python -m backend.scripts.check_dashboard_contract --base http://127.0.0.1:8001
+
+Checking the demo instance (the default, port 8000) is fine as a one-off:
+eight analyses is well under the behavioural evidence threshold. Repeated
+runs against it are what turn verification into history.
 
 Exits non-zero on any failure. Requires ``websocket-client`` from
 requirements-dev.txt; it is a development tool, not a runtime dependency.
 """
 
+import argparse
 import json
 import sys
 import time
@@ -65,6 +78,7 @@ class Browser(object):
         self.console = []
         self.failed_requests = []
         self.last_analyze_request = None
+        self.request_urls = {}
 
     def cmd(self, method, **params):
         self._id += 1
@@ -80,6 +94,12 @@ class Browser(object):
     def _note(self, message):
         method = message.get("method")
         params = message.get("params", {})
+        if method == "Network.requestWillBeSent":
+            # loadingFailed carries no URL, so remember what each id was for.
+            # Without this a browser-initiated favicon fetch reads as an
+            # unattributable application failure.
+            self.request_urls[params.get("requestId")] = params.get(
+                "request", {}).get("url", "")
         if method == "Network.responseReceived":
             url = params.get("response", {}).get("url", "")
             if "/api/analyze" in url:
@@ -98,7 +118,9 @@ class Browser(object):
                 self.failed_requests.append(
                     "%s %s" % (response.get("status"), response.get("url")))
         elif method == "Network.loadingFailed":
-            self.failed_requests.append("failed " + str(params.get("errorText")))
+            self.failed_requests.append(
+                "failed %s %s" % (params.get("errorText"),
+                                  self.request_urls.get(params.get("requestId"), "?")))
 
     def drain(self, seconds):
         """Collect events for a while without issuing a command."""
@@ -142,8 +164,22 @@ class Browser(object):
             pass
 
 
-def main():
+def main(argv=None):
+    global BASE, CDP_PORT
+
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--base", default=BASE,
+                        help="platform to check (default %(default)s). Point "
+                             "this at an isolated instance to keep "
+                             "verification traffic out of the demo event log.")
+    parser.add_argument("--cdp-port", type=int, default=CDP_PORT,
+                        help="Chrome DevTools port (default %(default)s)")
+    args = parser.parse_args(argv)
+    BASE = args.base.rstrip("/")
+    CDP_PORT = args.cdp_port
+
     failures = []
+    print("checking %s via CDP port %d" % (BASE, CDP_PORT))
 
     try:
         urllib.request.urlopen(BASE + "/api/health", timeout=5).read()
@@ -235,6 +271,22 @@ def main():
             if expect_abstention and not abstained:
                 problems.append("no detector reported ABSTAINED")
 
+            # The recommendation sits directly above the factor list. It must
+            # not deny evidence the reader can see beneath it.
+            action = (expected.get("recommended_action") or "").lower()
+            contributed = [f for f in expected["risk_factors"]
+                           if f["contribution"] > 0]
+            if contributed:
+                for denial in ("no signal reported", "no signal had",
+                               "reported no risk indicators"):
+                    if denial in action:
+                        problems.append(
+                            "recommendation says %r while %s contributed %+.1f"
+                            % (denial, contributed[0]["code"],
+                               contributed[0]["contribution"]))
+            if action not in shown["text"].lower():
+                problems.append("recommended action not displayed")
+
             # Every detector must appear, abstaining or not. A panel that
             # disappears tells an analyst nothing about whether it ran.
             for panel in ("Name Classification", "Signal Fusion",
@@ -303,8 +355,13 @@ def main():
         print("event drill-down: rows=%s hidden before/open/reclosed = %s/%s/%s"
               % (toggle.get("rows"), toggle.get("before"),
                  toggle.get("opened"), toggle.get("closed")))
-        if not (toggle.get("rows") and toggle.get("before") is True
-                and toggle.get("opened") is False and toggle.get("closed") is True):
+        if not toggle.get("rows"):
+            # An isolated verification instance has no gateway history. Say so
+            # rather than reporting a broken control that was never shown.
+            print("   no DNS events in this instance - drill-down not exercised "
+                  "here; run against an instance with gateway history to cover it")
+        elif not (toggle.get("before") is True and toggle.get("opened") is False
+                  and toggle.get("closed") is True):
             failures.append(("event drill-down", ["row did not toggle open/closed"]))
 
         # /favicon.ico is requested by the browser itself, not by the page.

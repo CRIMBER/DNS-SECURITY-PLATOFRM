@@ -131,8 +131,23 @@ def run_gateway(gateway_factory):
     def runner(**kwargs):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        gateway, repository, resolver = gateway_factory(**kwargs)
-        loop.run_until_complete(gateway.start())
+
+        # Port 0 hands back an ephemeral UDP port, and the TCP listener then
+        # asks for the same number - which nothing guarantees is free. The
+        # gateway treats a TCP bind failure as non-fatal and serves UDP only,
+        # which is the right call in production but makes the TCP tests fail
+        # for a reason unrelated to what they assert. It shows up only under
+        # ephemeral-port pressure, so the whole class fails at once and looks
+        # like a policy bug. Ask for another port instead.
+        for attempt in range(6):
+            gateway, repository, resolver = gateway_factory(**kwargs)
+            loop.run_until_complete(gateway.start())
+            if gateway.tcp is not None and gateway.tcp.running:
+                break
+            loop.run_until_complete(gateway.stop())
+        else:
+            pytest.fail("no ephemeral port had both UDP and TCP free after "
+                        "6 attempts; the machine is out of ephemeral ports")
 
         import threading
 

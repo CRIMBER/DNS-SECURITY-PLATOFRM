@@ -89,16 +89,20 @@ def _scope_abstention(features: DomainFeatures) -> Optional[str]:
     if not classification.has_scope(REGISTRANT_LABEL):
         return "This name has no registrant-chosen label to analyse."
 
-    # The corpus is Latin-script brand labels. A Cyrillic or Han label is
-    # outside the training distribution, and a model that reports "random"
-    # for every non-Latin name is not detecting anything - it is failing in
-    # one direction. Saying so is more useful than a confident wrong score.
-    scripts = classification.scripts
-    if scripts and scripts != {"Latin"}:
+    # A punycode label is an encoding of a name, not the name. The corpus is
+    # registrant-chosen labels written as themselves, so `xn--mnchen-3ya`
+    # is outside the training distribution no matter what it decodes to - and
+    # a model that reports "random" for every internationalised domain is not
+    # detecting anything, it is failing in one direction.
+    #
+    # The test is whether the label is ENCODED, not which script it decodes to:
+    # keying it on script let every Latin-script IDN through, and muenchen.de
+    # scored 99.5 on its punycode.
+    if classification.unicode_form is not None:
+        scripts = "/".join(sorted(classification.scripts)) or "non-ASCII"
         return (
-            "Model trained on Latin-script labels; this name is {}. Its "
-            "measurement does not transfer.".format(
-                "/".join(sorted(scripts)))
+            "Label is punycode-encoded ({} name). The model would be scoring "
+            "the encoding rather than the name.".format(scripts)
         )
     return None
 

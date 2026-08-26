@@ -53,13 +53,18 @@ def _shape_applies(features: DomainFeatures) -> bool:
         return True
     if classification.kind in _NO_CHOSEN_LABEL:
         return False
-    # These rules encode Latin-script, English-language assumptions: vowel
-    # ratio, consonant runs, dictionary coverage, entropy calibrated on ASCII
-    # labels. Applied to a punycode string they measure the ENCODING, not the
-    # name - the "29% digit ratio" of xn--80ak6aa92e is the 80 and 92 that
-    # punycode inserted. Every internationalised domain therefore looked
-    # machine-generated. Same limitation as the bigram model, same answer.
-    if classification.scripts and classification.scripts != {"Latin"}:
+    # A punycode label is an ENCODING, not a name. These rules measure entropy,
+    # digit density, vowel ratio, consonant runs and dictionary coverage - and
+    # on `xn--mnchen-3ya` every one of them is reading the encoding rather than
+    # the word "muenchen". The "29% digit ratio" of xn--80ak6aa92e is the 80 and
+    # 92 that punycode inserted.
+    #
+    # The test is whether the label is ENCODED, not which script it decodes to.
+    # Keying this on script instead let every Latin-script IDN through the gate
+    # and straight into the shape rules: muenchen.de scored 78/BLOCK and cafe.fr
+    # 79/BLOCK, on the punycode, while a Cyrillic name was correctly skipped.
+    # German, French, Spanish, Turkish and Vietnamese domains are all Latin.
+    if classification.unicode_form is not None:
         return False
     return classification.has_scope(REGISTRANT_LABEL)
 

@@ -360,3 +360,53 @@ class TestBackwardCompatibility:
         assert bare.classification is None
         assert bare.scope(REGISTRANT_LABEL) == ""
         assert bare.name_kind is None
+
+
+class TestLatinScriptIDNs:
+    """Found during final validation: the punycode gate was keyed on script.
+
+    Non-Latin IDNs were correctly skipped, but a Latin-script IDN passed the
+    gate and its PUNYCODE form went straight into the shape rules and the
+    bigram model. muenchen.de scored 78/BLOCK and cafe.fr 79/BLOCK - both
+    ordinary domains - because `xn--mnchen-3ya` has no dictionary words, an
+    odd vowel ratio and two hyphens.
+
+    The condition is whether the label is ENCODED, not what it decodes to.
+    """
+
+    LATIN_IDNS = ["m\u00fcnchen.de", "caf\u00e9.fr", "espa\u00f1a.es",
+                  "t\u00fcrkiye.com.tr"]
+
+    @pytest.mark.parametrize("domain", LATIN_IDNS)
+    def test_latin_script_idn_is_not_scored_on_its_punycode(self, domain):
+        features = extract_features(normalize(domain))
+        assert features.classification.unicode_form is not None
+        assert features.classification.scripts == frozenset({"Latin"})
+
+        dga = get_dga_detector().analyse(features)
+        assert dga.confidence == 0.0, "%s scored on punycode" % domain
+        assert "punycode-encoded" in dga.notes
+
+        signal = score_lexical(features)
+        codes = {f.code for f in signal.factors}
+        for shape in ("NO_DICTIONARY_WORDS", "ENTROPY_NORMALIZED_HIGH",
+                      "HYPHEN_MANY", "VOWEL_RATIO_LOW", "ENTROPY_HIGH"):
+            assert shape not in codes, "%s fired on punycode for %s" % (shape, domain)
+
+    @pytest.mark.parametrize("domain", LATIN_IDNS)
+    def test_ordinary_idns_are_still_reported_as_idns(self, domain):
+        signal = score_lexical(extract_features(normalize(domain)))
+        assert any(f.code == "PUNYCODE" for f in signal.factors)
+
+    def test_idn_phishing_is_still_caught_through_the_decoded_form(self):
+        """Abstaining on shape is only safe because meaning is still read.
+
+        Brand and keyword matching consume SEMANTIC_TEXT, which is the decoded
+        Unicode, so an IDN carrying a brand token is still detected.
+        """
+        signal = score_lexical(
+            extract_features(normalize("paypal-verify.m\u00fcnchen.de"))
+        )
+        codes = {f.code for f in signal.factors}
+        assert "BRAND_IMPERSONATION" in codes
+        assert "SUSPICIOUS_KEYWORD" in codes

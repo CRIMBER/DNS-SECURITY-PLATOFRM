@@ -101,6 +101,20 @@ def dga_to_signal(result: DGAResult, config) -> Signal:
                 raw_points=score_100,
             )
         )
+    elif not result.components:
+        # The detector declined to measure at all. Saying "the character
+        # transitions are consistent with human-registered names" here would
+        # be a claim about a measurement that never happened - and it appeared
+        # verbatim under an IP address, which has no label to have transitions.
+        factors.append(
+            RiskFactor(
+                code="DGA_NOT_APPLICABLE",
+                label="DGA analysis does not apply to this name",
+                severity=Severity.INFO,
+                detail=result.notes or "This detector reported no measurement.",
+                raw_points=score_100,
+            )
+        )
     else:
         factors.append(
             RiskFactor(
@@ -112,8 +126,7 @@ def dga_to_signal(result: DGAResult, config) -> Signal:
                 detail="The label's character transitions are consistent with "
                 "human-registered domain names. Note this rules out algorithmic "
                 "generation only - it is not evidence the domain is safe, so "
-                "this signal reports reduced confidence and carries less weight "
-                "in fusion.",
+                "this signal abstains from the weighted average entirely.",
                 raw_points=score_100,
             )
         )

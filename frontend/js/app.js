@@ -435,6 +435,26 @@
     var dga = result.dga_analysis;
     var pct = dga.score * 100;
 
+    // An abstaining detector reports no components at all - there was no
+    // measurement to report. Reaching for c.bigram_llr.toFixed() then threw,
+    // the whole render aborted, and the page showed "Could not reach the
+    // analysis engine" for an API call that had returned 200. Say plainly
+    // that the model declined, and why.
+    if (!dga.components || dga.components.bigram_llr === undefined) {
+      var badge = el("span", "badge badge-SAFE", "ABSTAINED");
+      p.appendChild(badge);
+      var why = el("dl", "kv");
+      why.style.marginTop = "15px";
+      why.appendChild(el("dt", null, "Model"));
+      why.appendChild(el("dd", null, dga.model + " (" + dga.model_type + ")"));
+      why.appendChild(el("dt", null, "Confidence"));
+      why.appendChild(el("dd", null, dga.confidence));
+      p.appendChild(why);
+      p.appendChild(el("div", "note", dga.notes
+        || "This detector reported no measurement for this name."));
+      return p;
+    }
+
     var head = el("div");
     head.style.cssText = "display:flex;align-items:baseline;gap:10px;margin-bottom:10px";
     var num = el("span", null, dga.score.toFixed(2));
@@ -598,7 +618,18 @@
       })
       .catch(function (err) {
         button.disabled = false;
-        renderError({
+        // This catch covers BOTH a failed request and a crash while rendering
+        // a successful one. Reporting the second as "could not reach the
+        // analysis engine" sent us hunting a backend that was answering 200
+        // perfectly well. Name the two cases apart.
+        var reachedServer = err && err.name === "TypeError"
+          && String(err).indexOf("fetch") === -1;
+        renderError(reachedServer ? {
+          code: "RENDER_ERROR",
+          message: "The analysis completed, but this page failed to display it.",
+          detail: String(err) + " - the API response is fine; this is a "
+            + "frontend bug. Check the browser console."
+        } : {
           code: "NETWORK_ERROR",
           message: "Could not reach the analysis engine.",
           detail: String(err)

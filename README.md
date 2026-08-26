@@ -107,10 +107,14 @@ threshold is hardcoded anywhere in the Python.
 | Signal | Weight | Abstains when… |
 |---|---|---|
 | Threat intelligence | 0.40 | the domain is in no dataset |
-| DGA / suspicion | 0.35 | (reduced confidence on a null finding) |
-| Lexical analysis | 0.25 | — always reports |
+| DGA / suspicion | 0.35 | no algorithmic generation found; or the name has no registrant-chosen label (IP literal, reverse DNS, `.local`); or the label is punycode |
+| Lexical analysis | 0.25 | no lexical rule fires; or the name has no label to judge (same cases as DGA) |
 | DNS tunnelling | 0.15 | the name has no subdomain, or no indicator fires |
 | Behavioural | 0.10 | the domain has too little history to judge |
+
+**Every signal abstains rather than voting for safety.** A signal that found
+nothing reports confidence 0.0 and drops out of *both* sums of the weighted
+average, so absence of evidence never dilutes evidence another signal did find.
 
 The first three keep the ratio they were approved with. Because the engine
 normalises by the weights that actually reported, adding the last two changed no
@@ -183,6 +187,28 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
 - Input validation and canonicalisation — pasted URLs, ports, user-info,
   trailing dots, upper case, IDN → punycode, IP literals, single labels,
   underscore labels
+- **Name classification and analysis scope** (`backend/app/core/classification.py`)
+  — the pipeline runs `NORMALIZE → PARSE → CLASSIFY → SELECT SCOPE → DETECTORS`.
+  One stage decides what kind of name this is (`REGISTRY_DOMAIN`,
+  `PROVIDER_HOST`, `INFRASTRUCTURE`, `LOCAL_NAME`, `IP_LITERAL`,
+  `SINGLE_LABEL`, `MALFORMED`) and which *named span* each detector should read
+  — `registrant_label`, `delegated_span`, `controlled_span`, `semantic_text`.
+  Detectors consume that answer instead of inferring domain semantics
+  themselves.
+
+  Before this stage existed every detector independently assumed the label
+  below the public suffix was a registrant-chosen brand name. That holds for
+  one kind of name out of seven, and the other six were scored on the wrong
+  span: `192.168.1.10` reached 95/BLOCK on the digit ratio of an address,
+  `42.1.168.192.in-addr.arpa` reached 61/MONITOR because `in-addr` was scored
+  as a brand label, and every internationalised domain was scored on its
+  punycode — `münchen.de` reached 78/BLOCK. All now resolve to 0–15/ALLOW,
+  with each detector recording *why* it declined.
+
+  Classification records where a name sits; it grants nothing. A
+  `PROVIDER_HOST` gets no score cap, no trusted verdict and no detector
+  disabled — threat intelligence, behavioural, tunnelling and brand/keyword
+  analysis are unaffected in every category.
 - ~25 lexical features: length, label structure, digit ratio, hyphens,
   subdomain depth, Shannon entropy (raw and length-normalised), vowel ratio,
   consonant runs, character-class distribution, character repetition,
@@ -211,18 +237,24 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
   corroboration bonus, suspicious-TLD/DGA bonus, trusted-allowlist ceiling).
   Every factor carries the exact number of points it moved the score, and
   **the contributions always sum to the final score** — asserted by tests.
+  The corroboration bonus requires the agreeing signals to have read
+  *different* spans: the DGA model and the lexical shape rules both read the
+  registrant label and share two inputs, so agreement between them is one
+  observation counted twice, not two independent ones.
 - **SQLite event logging** — every analysis persists one row; every dashboard
   figure is aggregated from those rows.
-- **Security dashboard** — four views (Overview, Domain Analysis, Recent
-  Activity, Threat Analytics) with hand-rolled SVG charts. No npm, no CDN,
+- **Security dashboard** — five views (Overview, Domain Analysis, Recent
+  Activity, DNS Security, Threat Analytics) with hand-rolled SVG charts. No npm, no CDN,
   works offline.
 - Endpoints: `GET /api/health`, `GET /api/config`, `POST /api/analyze`,
   `POST /api/analyze/bulk`, `GET /api/events`, `GET /api/stats`,
   `DELETE /api/events`, plus the per-signal debug endpoints
-  `POST /api/debug/features`, `POST /api/intel/lookup`, `POST /api/debug/dga`
+  `POST /api/debug/features`, `POST /api/intel/lookup`, `POST /api/debug/dga`;
+  gateway endpoints `GET /api/dns/status`, `GET /api/dns/stats`,
+  `GET /api/dns/events`
 - Structured error handling with stable error codes; no stack traces reach the
   client
-- 264 passing tests, including the three demonstration scenarios and 31 DNS
+- 406 passing tests, including the three demonstration scenarios and 39 DNS
   integration tests that bind real sockets and exchange real DNS packets
   (`backend/tests/test_scenarios.py`, `test_dns_integration.py`)
 
@@ -246,11 +278,15 @@ Then open http://127.0.0.1:8000 and work through the three scenarios below.
 
 ### Planned production extensions (not built)
 
-Live threat-intelligence feeds and STIX/TAXII, a trained ML DGA model, real DNS
-resolution and secure transports (DoH/DoT), DNS tunnelling detection, PCAP/Zeek
-ingestion, behavioural analysis over query history, caching, and scalable
-deployment. Interfaces for these are declared in `backend/app/extensions/`; they
-contain **no fake implementations.**
+Live threat-intelligence feeds and STIX/TAXII, a trained ML DGA model, secure
+transports (DoH/DoT), PCAP/Zeek ingestion, the full Mozilla Public Suffix List,
+homograph/confusable detection for internationalised names, threat-intelligence
+lookups keyed on IP addresses, and scalable deployment. Interfaces for these are
+declared in `backend/app/extensions/`; they contain **no fake implementations.**
+
+*Real DNS resolution, DNS tunnelling detection, behavioural analysis over query
+history and answer caching were listed here while unbuilt. They are built —
+see the DNS Security Gateway section below.*
 
 ---
 

@@ -321,6 +321,174 @@
    * Domain analysis
    * ===================================================================== */
 
+  /* =====================================================================
+   * Abstention
+   *
+   * A detector reporting confidence 0.00 is saying "I have no information
+   * about this name" - not "this name is safe", and emphatically not
+   * "something went wrong". The API returns 200 with a complete body for
+   * these, so the dashboard must render them as the ordinary successful
+   * results they are.
+   *
+   * Reaching for a measurement that was never taken used to throw here,
+   * abort the whole render, and surface as "Could not reach the analysis
+   * engine" - for a backend that had answered perfectly. Every detector
+   * panel below therefore states abstention explicitly instead of guessing
+   * at numbers or quietly disappearing.
+   * ===================================================================== */
+
+  /* Each signal emits its own INFO-severity factor carrying the reason it
+     abstained, so the wording shown to an analyst is the backend's own
+     sentence rather than something this file invented. */
+  var FACTOR_PREFIX = {
+    threat_intel: "TI_",
+    dga:          "DGA_",
+    lexical:      "LEXICAL_",
+    tunnel:       "DNS_TUNNEL_",
+    behavioral:   "BEHAVIORAL_"
+  };
+
+  function signalOf(result, name) {
+    var list = result.signals || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].name === name) return list[i];
+    }
+    return null;
+  }
+
+  function isAbstaining(result, name) {
+    var signal = signalOf(result, name);
+    return !!signal && !signal.used_in_fusion;
+  }
+
+  function abstentionReason(result, name) {
+    var prefix = FACTOR_PREFIX[name];
+    var factors = result.risk_factors || [];
+    for (var i = 0; i < factors.length; i++) {
+      if (prefix && factors[i].code.indexOf(prefix) === 0 && factors[i].detail) {
+        return factors[i].detail;
+      }
+    }
+    return "This detector reported no usable information about this name.";
+  }
+
+  function kvRows(pairs) {
+    var dl = el("dl", "kv");
+    dl.style.marginTop = "15px";
+    pairs.forEach(function (pair) {
+      if (pair[1] === undefined || pair[1] === null) return;
+      dl.appendChild(el("dt", null, pair[0]));
+      dl.appendChild(el("dd", null, pair[1]));
+    });
+    return dl;
+  }
+
+  function abstentionNote() {
+    return el("div", "note",
+      "Abstaining is a successful analysis, not an error. The signal is "
+      + "removed from BOTH sides of the weighted average, so it neither "
+      + "raises nor lowers the score - the signals that did have evidence "
+      + "decide the verdict on their own.");
+  }
+
+  /* Uniform panel for a detector that declined to contribute.
+   *
+   * `measured` separates the two kinds of abstention, which must not be
+   * displayed the same way:
+   *   false - the detector never ran, because this name has nothing for it
+   *           to read (an IP literal has no registrant label). There is no
+   *           number; printing "0" would be inventing a measurement.
+   *   true  - the detector ran, found nothing, and still abstains, because
+   *           finding no anomaly is not evidence of safety. The value it
+   *           measured is shown, labelled as measured-but-not-used.
+   */
+  function abstentionPanel(title, result, signalName, measured, extraPairs) {
+    var signal = signalOf(result, signalName);
+    var p = panel(title);
+    p.appendChild(el("span", "badge badge-ABSTAIN", "ABSTAINED"));
+
+    var pairs = [
+      ["Reported score", measured && signal
+        ? signal.score.toFixed(1) + " / 100  (measured, not used as evidence)"
+        : "not measured - this detector did not run on this name"],
+      ["Confidence", (signal ? signal.confidence.toFixed(2) : "0.00")
+        + "  (no information, not a claim of safety)"],
+      ["Weight in fusion", signal
+        ? signal.weight.toFixed(2) + "  (declared weight, unused here)" : "-"],
+      ["Used in fusion", "no - excluded from the weighted average"]
+    ];
+    p.appendChild(kvRows(pairs.concat(extraPairs || [])));
+    p.appendChild(el("div", "note", abstentionReason(result, signalName)));
+    p.appendChild(abstentionNote());
+    return p;
+  }
+
+  var KIND_LABEL = {
+    REGISTRY_DOMAIN: "Registrable domain",
+    PROVIDER_HOST:   "Host inside a provider namespace",
+    INFRASTRUCTURE:  "Infrastructure / reverse-DNS name",
+    LOCAL_NAME:      "Local / special-use name",
+    IP_LITERAL:      "IP address literal",
+    SINGLE_LABEL:    "Single label, no public suffix",
+    MALFORMED:       "Malformed name"
+  };
+
+  var SCOPE_LABEL = {
+    full_name:          "full name",
+    registrable_domain: "registrable domain",
+    registrant_label:   "registrant label",
+    delegated_span:     "delegated span",
+    controlled_span:    "controlled span",
+    semantic_text:      "semantic text"
+  };
+
+  /* Surfaces the classification the pipeline already made and already
+     returns. Nothing here is recomputed in the browser - if the field is
+     absent the panel is omitted rather than guessed at. */
+  function renderClassification(result) {
+    var nc = (result.domain_features || {}).name_classification;
+    if (!nc) return null;
+
+    var p = panel("Name Classification");
+    p.appendChild(el("span", "badge badge-KIND", nc.kind));
+
+    var scopes = nc.scopes || {};
+    var spans = Object.keys(scopes)
+      .filter(function (key) { return scopes[key]; })
+      .map(function (key) {
+        return (SCOPE_LABEL[key] || key) + " = \u201c" + scopes[key] + "\u201d";
+      });
+
+    var pairs = [
+      ["Name kind", KIND_LABEL[nc.kind] || nc.kind],
+      ["Public suffix", nc.public_suffix || "none"],
+      ["Suffix type", nc.suffix_kind],
+      ["Label chosen by", nc.scope_is_registrant_chosen
+        ? "a registrant who paid for it"
+        : "not a registrant - allocated, derived or never registered"],
+      ["Analysis scopes", spans.length
+        ? spans.join("     ") : "none - there is nothing here to analyse"]
+    ];
+    if (nc.unicode_form) pairs.push(["Unicode form", nc.unicode_form]);
+    if (nc.scripts && nc.scripts.length) pairs.push(["Scripts", nc.scripts.join(", ")]);
+    if (nc.is_reverse_dns) {
+      pairs.push(["Reverse-DNS target", nc.reverse_target || "could not be decoded"]);
+    }
+    if (nc.ip_address) {
+      pairs.push(["IP address", nc.ip_address + "  (IPv" + nc.ip_version + ")"]);
+      pairs.push(["Address range", nc.ip_is_private ? "private" : "public"]);
+    }
+    if (nc.special_use) pairs.push(["Special-use zone", "." + nc.special_use]);
+    p.appendChild(kvRows(pairs));
+
+    p.appendChild(el("div", "note", nc.reason));
+    p.appendChild(el("div", "note",
+      "Classification decides WHICH SPAN of the name each detector reads. "
+      + "It never allows, blocks, caps or excuses a name by itself - no "
+      + "detector is disabled and no score is capped on the strength of it."));
+    return p;
+  }
+
   function renderVerdict(result) {
     var p = panel(null);
     var row = el("div", "verdict");
@@ -390,7 +558,7 @@
       tr.appendChild(el("td", "num", signal.confidence.toFixed(2)));
       tr.appendChild(el("td", "num", signal.weight.toFixed(2)));
       tr.appendChild(el("td", "num", signal.weighted_contribution.toFixed(2)));
-      tr.appendChild(el("td", null, signal.used_in_fusion ? "yes" : "excluded"));
+      tr.appendChild(el("td", null, signal.used_in_fusion ? "yes" : "ABSTAINED"));
       table.appendChild(tr);
     });
     wrap.appendChild(table);
@@ -399,10 +567,19 @@
     var excluded = result.signals.filter(function (s) { return !s.used_in_fusion; });
     if (excluded.length) {
       p.appendChild(el("div", "note",
-        "The " + excluded.map(function (s) { return s.name; }).join(", ") +
-        " signal reported confidence 0.00 and was excluded from the weighted " +
-        "average entirely. That is an absence of evidence, not evidence of " +
-        "safety - the remaining signals decided this verdict on their own."));
+        excluded.length + " of " + result.signals.length + " signals reported "
+        + "confidence 0.00 and were excluded from the weighted average "
+        + "entirely. That is an absence of evidence, not evidence of safety - "
+        + "the signals that did have evidence decided this verdict alone. "
+        + "Each one states below why it had nothing to say."));
+      var why = el("div", "abstain-list");
+      excluded.forEach(function (s) {
+        var item = el("div", "abstain-item");
+        item.appendChild(el("span", "badge badge-ABSTAIN", s.name));
+        item.appendChild(el("span", "abstain-why", abstentionReason(result, s.name)));
+        why.appendChild(item);
+      });
+      p.appendChild(why);
     }
     if (result.overrides_applied.length) {
       p.appendChild(el("div", "note",
@@ -431,34 +608,34 @@
   }
 
   function renderDGA(result) {
-    var p = panel("DGA / Suspicion Analysis");
-    var dga = result.dga_analysis;
-    var pct = dga.score * 100;
+    var dga = result.dga_analysis || {};
+    var c = dga.components || {};
+    var measured = c.bigram_llr !== undefined;
+    var provenance = [["Model", (dga.model || "unknown")
+      + " (" + (dga.model_type || "unknown") + ")"]];
 
-    // An abstaining detector reports no components at all - there was no
-    // measurement to report. Reaching for c.bigram_llr.toFixed() then threw,
-    // the whole render aborted, and the page showed "Could not reach the
-    // analysis engine" for an API call that had returned 200. Say plainly
-    // that the model declined, and why.
-    if (!dga.components || dga.components.bigram_llr === undefined) {
-      var badge = el("span", "badge badge-SAFE", "ABSTAINED");
-      p.appendChild(badge);
-      var why = el("dl", "kv");
-      why.style.marginTop = "15px";
-      why.appendChild(el("dt", null, "Model"));
-      why.appendChild(el("dd", null, dga.model + " (" + dga.model_type + ")"));
-      why.appendChild(el("dt", null, "Confidence"));
-      why.appendChild(el("dd", null, dga.confidence));
-      p.appendChild(why);
-      p.appendChild(el("div", "note", dga.notes
-        || "This detector reported no measurement for this name."));
-      return p;
+    // No components at all means the detector declined to measure: there was
+    // no registrant-chosen label to read. Reading c.bigram_llr here is what
+    // threw and took the whole page down with it.
+    if (!measured) {
+      return abstentionPanel("DGA / Suspicion Analysis", result, "dga",
+        false, provenance);
     }
 
+    var p = panel("DGA / Suspicion Analysis");
+    var pct = dga.score * 100;
+    var abstains = isAbstaining(result, "dga");
+
+    // Measured, but still abstaining: the score sits below the threshold at
+    // which "this looks algorithmically generated" is a finding. Saying
+    // nothing here would let a 0.02 suspicion read as a safety vote.
+    if (abstains) p.appendChild(el("span", "badge badge-ABSTAIN", "ABSTAINED"));
+
     var head = el("div");
-    head.style.cssText = "display:flex;align-items:baseline;gap:10px;margin-bottom:10px";
+    head.style.cssText = "display:flex;align-items:baseline;gap:10px;margin:10px 0";
     var num = el("span", null, dga.score.toFixed(2));
-    num.style.cssText = "font-family:var(--mono);font-size:32px;font-weight:700;color:" + scoreColor(pct);
+    num.style.cssText = "font-family:var(--mono);font-size:32px;font-weight:700;color:"
+      + scoreColor(pct);
     head.appendChild(num);
     head.appendChild(el("span", "muted", "suspicion (0.00 - 1.00)"));
     p.appendChild(head);
@@ -470,43 +647,74 @@
     bar.appendChild(fill);
     p.appendChild(bar);
 
-    var dl = el("dl", "kv");
-    dl.style.marginTop = "15px";
-    function row(k, v) { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); }
-    var c = dga.components;
-    row("Model", dga.model + " (" + dga.model_type + ")");
-    row("Bigram log-likelihood", c.bigram_llr.toFixed(3));
-    row("Deviation from normal", c.z_score.toFixed(2) + " sigma");
-    row("Length factor", c.length_factor.toFixed(2));
-    row("Word coverage", (c.dictionary_word_coverage * 100).toFixed(0) + "%");
-    if (dga.top_contributors.length) row("Contributors", dga.top_contributors.join(", "));
-    p.appendChild(dl);
-    p.appendChild(el("div", "note", dga.notes));
+    var signal = signalOf(result, "dga");
+    var pairs = provenance.concat([
+      ["Bigram log-likelihood", c.bigram_llr.toFixed(3)],
+      ["Deviation from normal", (c.z_score || 0).toFixed(2) + " sigma"],
+      ["Length factor", (c.length_factor || 0).toFixed(2)],
+      ["Word coverage", ((c.dictionary_word_coverage || 0) * 100).toFixed(0) + "%"]
+    ]);
+    if (dga.top_contributors && dga.top_contributors.length) {
+      pairs.push(["Contributors", dga.top_contributors.join(", ")]);
+    }
+    if (signal) {
+      pairs.push(["Signal score", signal.score.toFixed(1) + " / 100"
+        + (abstains ? "  (measured, not used as evidence)" : "")]);
+      pairs.push(["Signal confidence", signal.confidence.toFixed(2)
+        + (abstains ? "  (no information, not a claim of safety)" : "")]);
+      pairs.push(["Weight in fusion", signal.weight.toFixed(2)
+        + (abstains ? "  (declared weight, unused here)" : "")]);
+      pairs.push(["Used in fusion", abstains
+        ? "no - excluded from the weighted average" : "yes"]);
+    }
+    p.appendChild(kvRows(pairs));
+
+    if (dga.notes) p.appendChild(el("div", "note", dga.notes));
+    if (abstains) {
+      p.appendChild(el("div", "note", abstentionReason(result, "dga")));
+      p.appendChild(abstentionNote());
+    }
     return p;
   }
 
   function renderTunnel(result) {
     var t = result.tunnel_analysis || {};
-    if (!t.indicators || !t.indicators.length) return null;
+    var m = t.measurements || {};
+
+    /* This panel used to return null whenever no indicator fired, so the
+       detector vanished from the page entirely and an analyst could not tell
+       "examined, found nothing" apart from "never ran". Both now say so. */
+    if (!t.indicators || !t.indicators.length) {
+      var couldMeasure = !m.not_applicable;
+      var extra = couldMeasure
+        ? [["Subdomain length", m.subdomain_length],
+           ["Labels", m.subdomain_label_count],
+           ["Longest label", m.longest_label],
+           ["Subdomain entropy", m.subdomain_entropy]]
+        : [["Name kind", m.name_kind]];
+      extra.unshift(["Detector", (t.method || "unknown")
+        + " (" + (t.method_type || "unknown") + ")"]);
+      return abstentionPanel("DNS Tunnelling Analysis", result, "tunnel",
+        couldMeasure, extra);
+    }
 
     var p = panel("DNS Tunnelling Analysis");
     p.appendChild(el("span", "badge badge-MALICIOUS",
       t.indicators.length + " INDICATOR" + (t.indicators.length > 1 ? "S" : "")));
 
-    var dl = el("dl", "kv");
-    dl.style.marginTop = "15px";
-    function row(k, v) { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); }
-    var m = t.measurements || {};
-    row("Indicators", t.indicators.join(", "));
-    row("Subdomain length", m.subdomain_length);
-    row("Labels", m.subdomain_label_count);
-    row("Longest label", m.longest_label);
-    row("Subdomain entropy", m.subdomain_entropy);
-    if (m.encoding_alphabet) row("Encoding alphabet", m.encoding_alphabet);
-    if (m.query_type) row("Record type", m.query_type);
-    row("Signal score", t.score + " / 100");
-    row("Signal confidence", t.confidence);
-    p.appendChild(dl);
+    var pairs = [
+      ["Indicators", t.indicators.join(", ")],
+      ["Subdomain length", m.subdomain_length],
+      ["Labels", m.subdomain_label_count],
+      ["Longest label", m.longest_label],
+      ["Subdomain entropy", m.subdomain_entropy]
+    ];
+    if (m.encoding_alphabet) pairs.push(["Encoding alphabet", m.encoding_alphabet]);
+    if (m.query_type) pairs.push(["Record type", m.query_type]);
+    pairs.push(["Signal score", t.score + " / 100"]);
+    pairs.push(["Signal confidence", t.confidence]);
+    p.appendChild(kvRows(pairs));
+
     // The API field is method_type, not model_type - reading the wrong name
     // rendered the provenance label as "undefined", which is precisely the
     // claim this note exists to keep honest.
@@ -519,27 +727,43 @@
   function renderBehavioral(result) {
     var b = result.behavioral_analysis || {};
     var o = b.observations || {};
-    if (!o.history_available || !o.queries_in_window) return null;
+    var hasHistory = !!o.history_available && !!o.queries_in_window;
 
-    var p = panel("Behavioural Analysis");
-    if (b.indicators && b.indicators.length) {
-      p.appendChild(el("span", "badge badge-MALICIOUS", b.indicators.join(", ").toUpperCase()));
-    } else {
-      p.appendChild(el("span", "badge badge-SAFE", "NO ANOMALIES"));
+    /* Same silent-disappearance problem as tunnelling: a domain with no
+       history and a domain with clean history both rendered as nothing. */
+    if (!b.indicators || !b.indicators.length) {
+      var extra = [["Detector", (b.method || "unknown")
+        + " (" + (b.method_type || "unknown") + ")"]];
+      if (hasHistory) {
+        extra.push(["Window", o.window_minutes + " minutes"]);
+        extra.push(["Queries seen", o.queries_in_window]);
+        extra.push(["Distinct names", o.distinct_subdomains]);
+        extra.push(["Failed lookups", o.nxdomain_responses]);
+        extra.push(["Blocked before", o.blocked_before]);
+      } else {
+        extra.push(["History available", o.history_available ? "yes" : "no"]);
+        extra.push(["Queries in window", o.queries_in_window || 0]);
+      }
+      return abstentionPanel("Behavioural Analysis", result, "behavioral",
+        hasHistory, extra);
     }
 
-    var dl = el("dl", "kv");
-    dl.style.marginTop = "15px";
-    function row(k, v) { dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, v)); }
-    row("Window", o.window_minutes + " minutes");
-    row("Queries seen", o.queries_in_window);
-    row("Distinct names", o.distinct_subdomains);
-    row("Failed lookups", o.nxdomain_responses);
-    if (o.nxdomain_ratio !== undefined) row("Failure ratio", o.nxdomain_ratio);
-    row("Blocked before", o.blocked_before);
-    row("Signal score", b.score + " / 100");
-    row("Signal confidence", b.confidence);
-    p.appendChild(dl);
+    var p = panel("Behavioural Analysis");
+    p.appendChild(el("span", "badge badge-MALICIOUS",
+      b.indicators.join(", ").toUpperCase()));
+
+    var pairs = [
+      ["Window", o.window_minutes + " minutes"],
+      ["Queries seen", o.queries_in_window],
+      ["Distinct names", o.distinct_subdomains],
+      ["Failed lookups", o.nxdomain_responses]
+    ];
+    if (o.nxdomain_ratio !== undefined) pairs.push(["Failure ratio", o.nxdomain_ratio]);
+    pairs.push(["Blocked before", o.blocked_before]);
+    pairs.push(["Signal score", b.score + " / 100"]);
+    pairs.push(["Signal confidence", b.confidence]);
+    p.appendChild(kvRows(pairs));
+
     p.appendChild(el("div", "note",
       "Judged by what this domain has DONE, not what it is called (" + b.method
       + " / " + b.method_type + "). Abstains with confidence 0.00 until enough "
@@ -576,6 +800,14 @@
     return p;
   }
 
+  /* Panel order on the Analyse view. Every detector appears for every
+     result, including the ones that abstained - a detector that vanishes
+     tells an analyst nothing about whether it ran. */
+  var PANELS = [
+    renderVerdict, renderClassification, renderFactors, renderSignals,
+    renderIntel, renderDGA, renderTunnel, renderBehavioral, renderFeatures
+  ];
+
   function renderError(error) {
     var box = el("div", "error");
     box.appendChild(el("div", "error-code", error.code || "ERROR"));
@@ -604,16 +836,24 @@
         var result = response.data;
         var host = $("results");
         host.innerHTML = "";
-        host.appendChild(renderVerdict(result));
-        host.appendChild(renderFactors(result));
-        host.appendChild(renderSignals(result));
-        host.appendChild(renderIntel(result));
-        host.appendChild(renderDGA(result));
-        var tunnelPanel = renderTunnel(result);
-        if (tunnelPanel) host.appendChild(tunnelPanel);
-        var behavioralPanel = renderBehavioral(result);
-        if (behavioralPanel) host.appendChild(behavioralPanel);
-        host.appendChild(renderFeatures(result));
+        // Render each panel in isolation. A panel that throws must never
+        // blank the page or be reported as a failure to reach the backend -
+        // the analysis in hand succeeded, and the rest of it is still worth
+        // showing. The broken panel names itself instead.
+        PANELS.forEach(function (render) {
+          var node;
+          try {
+            node = render(result);
+          } catch (panelError) {
+            console.error("panel render failed:", render.name, panelError);
+            node = el("div", "panel error");
+            node.appendChild(el("div", "error-code", "PANEL_ERROR"));
+            node.appendChild(el("div", null,
+              "The analysis succeeded; this one panel failed to display it."));
+            node.appendChild(el("div", "muted", render.name + ": " + panelError));
+          }
+          if (node) host.appendChild(node);
+        });
         loadStats();     // the event this created is now part of the numbers
       })
       .catch(function (err) {

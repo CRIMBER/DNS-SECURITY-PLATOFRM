@@ -188,6 +188,15 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 .badge-UNKNOWN {
   background: rgba(100,116,139,.15); color: #94a3b8; border: 1px solid rgba(100,116,139,.4);
 }
+/* Abstention is neither good news nor bad news: a detector saying it has no
+   information must not be painted in the colour of a safe verdict. */
+.badge-ABSTAIN, .badge-KIND {
+  background: rgba(100,116,139,.15); color: #94a3b8; border: 1px solid rgba(100,116,139,.4);
+}
+
+.abstain-list { margin-top: 10px; display: grid; gap: 8px; }
+.abstain-item { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.abstain-why { flex: 1; min-width: 240px; color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
 
 /* -- verdict hero -------------------------------------------------------- */
 

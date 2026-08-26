@@ -1,3 +1,9 @@
 -r requirements.txt
 pytest>=8.0
 httpx>=0.27
+
+# Drives a real Chrome over the DevTools protocol for
+# backend/scripts/check_dashboard_contract.py. The dashboard once crashed on
+# every abstaining detector and reported it as a network failure; no Python
+# test could see it, because none of them ran the JavaScript.
+websocket-client>=1.7

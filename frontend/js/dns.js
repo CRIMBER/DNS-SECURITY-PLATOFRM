@@ -38,7 +38,12 @@
     head.appendChild(label);
     host.appendChild(head);
 
-    if (status.bind_error) {
+    /* A disabled gateway also reports a bind_error ("Gateway is disabled."),
+       so keying the red BIND_FAILED box on that field alone labelled a
+       deliberate shutdown as a fault. Only an ENABLED gateway can fail to
+       bind; a disabled one is a configuration state and says so in the
+       normal note below. */
+    if (status.bind_error && status.enabled) {
       var box = el("div", "error");
       box.appendChild(el("div", "error-code", "BIND_FAILED"));
       box.appendChild(el("div", null, status.bind_error));

@@ -3,26 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DNS Security Platform</title>
+  <title>DNS Security Operations</title>
   <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
   <div class="wrap">
 
     <header>
-      <div class="head-row">
-        <div>
-          <h1><span class="dot"></span>Adaptive DNS Security &amp; Threat Intelligence</h1>
-          <p class="subtitle">Security operations console &mdash; analysis engine + DNS gateway</p>
+      <div class="masthead">
+        <div class="head-row">
+          <div>
+            <h1><span class="dot"></span>DNS Security Operations</h1>
+            <p class="subtitle">AI-Powered Adaptive DNS Security &amp; Threat Intelligence</p>
+          </div>
+          <div class="head-actions">
+            <label class="toggle" title="Reload every 5 seconds">
+              <input type="checkbox" id="autoRefresh"> live
+            </label>
+            <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
+          </div>
         </div>
-        <div class="head-actions">
-          <label class="toggle" title="Reload every 5 seconds">
-            <input type="checkbox" id="autoRefresh"> live
-          </label>
-          <button class="ghost" id="refreshBtn" title="Reload statistics and events">Refresh</button>
-        </div>
+
+        <!-- Every cell is filled from /api/health. A component the payload
+             does not report is not displayed. See renderSysbar() in app.js. -->
+        <div class="sysbar" id="sysbar"></div>
+
+        <div class="status-line" id="statusLine">connecting to engine&hellip;</div>
       </div>
-      <div class="status-line" id="statusLine">connecting to engine&hellip;</div>
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="filtering">DNS Filtering</button>
@@ -37,6 +44,10 @@
 
     <!-- ============================ OVERVIEW ============================ -->
     <section class="view" id="view-overview">
+      <div class="view-head">
+        <h2>Live Security Overview</h2>
+        <p>Aggregated from stored analysis events</p>
+      </div>
       <div class="tiles" id="tiles"></div>
 
       <div class="grid-2">
@@ -58,6 +69,10 @@
 
     <!-- ============================ ANALYSE ============================= -->
     <section class="view hidden" id="view-analyse">
+      <div class="view-head">
+        <h2>Domain Analysis</h2>
+        <p>Full detection pipeline, per query</p>
+      </div>
       <div class="search">
         <input type="text" id="domainInput" placeholder="Enter a domain, e.g. github.com"
                autocomplete="off" spellcheck="false">
@@ -81,6 +96,10 @@
 
     <!-- ============================ ACTIVITY ============================ -->
     <section class="view hidden" id="view-activity">
+      <div class="view-head">
+        <h2>Event Stream</h2>
+        <p>Every analysis this engine has recorded</p>
+      </div>
       <div class="filters">
         <input type="text" id="eventSearch" placeholder="Filter by domain&hellip;" autocomplete="off">
         <select id="classFilter">
@@ -106,6 +125,10 @@
 
     <!-- ========================== DNS FILTERING ========================= -->
     <section class="view hidden" id="view-filtering">
+      <div class="view-head">
+        <h2>DNS Filtering / Resolver</h2>
+        <p>Resolution path and gateway telemetry</p>
+      </div>
       <div class="panel">
         <h2>Resolution Pipeline <span class="muted">every query takes this path</span></h2>
         <div id="pipelineDiagram"></div>
@@ -141,8 +164,12 @@
 
     <!-- ========================= CAPTURE ANALYSIS ======================= -->
     <section class="view hidden" id="view-capture">
+      <div class="view-head">
+        <h2>Passive DNS Traffic Analysis</h2>
+        <p>PCAP and Zeek dns.log forensics</p>
+      </div>
       <div class="panel">
-        <h2>Passive DNS Analysis <span class="muted">PCAP and Zeek dns.log</span></h2>
+        <h2>Forensic Pipeline <span class="muted">PCAP and Zeek dns.log</span></h2>
         <div id="capturePipeline"></div>
         <div class="upload-row">
           <label class="upload-btn">
@@ -162,6 +189,10 @@
 
     <!-- ========================== THREAT INTEL ========================== -->
     <section class="view hidden" id="view-intel">
+      <div class="view-head">
+        <h2>Threat Intelligence</h2>
+        <p>Indicator sources and feed state</p>
+      </div>
       <div class="panel">
         <h2>Threat-Intelligence Feeds</h2>
         <div class="upload-row">
@@ -184,6 +215,10 @@
 
     <!-- ============================== DNS =============================== -->
     <section class="view hidden" id="view-dns">
+      <div class="view-head">
+        <h2>DNS Operations Center</h2>
+        <p>Gateway activity, clients and latency</p>
+      </div>
       <div class="panel" id="dnsStatusPanel">
         <h2>Gateway Status</h2>
         <div id="dnsStatus"></div>
@@ -230,6 +265,10 @@
 
     <!-- =========================== ANALYTICS ============================ -->
     <section class="view hidden" id="view-analytics">
+      <div class="view-head">
+        <h2>Threat Analytics</h2>
+        <p>Distribution, categories and timeline</p>
+      </div>
       <div class="panel">
         <h2>Risk Score Distribution</h2>
         <div id="riskChart" class="chart"></div>

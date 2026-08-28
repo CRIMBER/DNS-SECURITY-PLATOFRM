@@ -119,11 +119,19 @@
     };
 
     host.appendChild(tile("Total analysed", total, "requests processed"));
-    host.appendChild(tile("Allowed", stats.allowed, pct(stats.allowed), "var(--safe)"));
-    host.appendChild(tile("Suspicious", stats.monitored, pct(stats.monitored), "var(--warning)"));
-    host.appendChild(tile("Blocked", stats.blocked, pct(stats.blocked), "var(--critical)"));
     host.appendChild(tile("Threats detected", stats.threats_detected,
       "suspicious + malicious", "var(--critical)"));
+    host.appendChild(tile("Blocked", stats.blocked, pct(stats.blocked), "var(--critical)"));
+    host.appendChild(tile("Monitored", stats.monitored, pct(stats.monitored), "var(--warning)"));
+    host.appendChild(tile("Allowed", stats.allowed, pct(stats.allowed), "var(--safe)"));
+
+    // Same measurement the Measured Performance panel prints, promoted to a
+    // tile. Omitted rather than shown as zero when nothing has been timed yet.
+    var perf = stats.performance || {};
+    if (perf.mean_analysis_time_ms !== undefined && perf.mean_analysis_time_ms !== null) {
+      host.appendChild(tile("Avg latency", perf.mean_analysis_time_ms.toFixed(2) + " ms",
+        "mean, server-side"));
+    }
   }
 
   function renderDecisionChart(stats) {
@@ -493,36 +501,10 @@
     return p;
   }
 
-  function renderVerdict(result) {
-    var p = panel(null);
-    var row = el("div", "verdict");
-
-    var score = el("div", "verdict-score");
-    score.textContent = result.risk_score;
-    score.style.color = scoreColor(result.risk_score);
-    score.appendChild(el("small", null, " / 100"));
-    row.appendChild(score);
-
-    var meta = el("div", "verdict-meta");
-    meta.appendChild(el("div", "domain-name", result.domain));
-
-    var bits = "registrable: " + result.registrable_domain;
-    bits += "   |   analysed in " + result.analysis_time_ms + " ms";
-    meta.appendChild(el("div", "domain-meta", bits));
-
-    var badges = el("div", "verdict-badges");
-    badges.appendChild(el("span", "badge badge-" + result.classification, result.classification));
-    badges.appendChild(el("span", "badge badge-" + result.decision, result.decision));
-    meta.appendChild(badges);
-    row.appendChild(meta);
-    p.appendChild(row);
-
-    var action = el("div", "action");
-    action.appendChild(el("b", null, "Recommended action"));
-    action.appendChild(document.createTextNode(result.recommended_action));
-    p.appendChild(action);
-    return p;
-  }
+  /* The verdict block is now drawn by renderHero() further down, which shows
+     the same fields (risk_score, classification, decision, recommended_action)
+     as a gauge rather than a number. The .verdict-* styles it used are still
+     live: js/filtering.js draws its result with them. */
 
   function renderFactors(result) {
     var p = panel("Risk Factors");
@@ -804,11 +786,399 @@
     return p;
   }
 
+  /* =====================================================================
+   * Mission-control presentation layer
+   *
+   * Everything below is a different DRAWING of data the backend already
+   * returned. No value is computed here, no threshold is applied here, and
+   * no state is asserted that the payload does not contain. If a field is
+   * missing the element is omitted rather than guessed at.
+   * ===================================================================== */
+
+  /* -- system status strip (from /api/health) ---------------------------- */
+
+  /* A cell is only emitted when the health payload actually carries the
+     component it describes. "READY" for DNS ANALYSIS means the three
+     detectors reported ok - it is not a claim that the gateway is bound,
+     which is a separate cell with its own real state. */
+  function renderSysbar(health) {
+    var host = $("sysbar");
+    if (!host) return;
+    host.innerHTML = "";
+    var c = health.components || {};
+
+    function cell(key, text, level) {
+      var box = el("div", "sysbar-cell");
+      box.appendChild(el("div", "sysbar-k", key));
+      var v = el("div", "sysbar-v " + level);
+      v.appendChild(el("span", "sysbar-led"));
+      v.appendChild(el("span", null, text));
+      box.appendChild(v);
+      host.appendChild(box);
+    }
+
+    cell("System Status", health.status === "ok" ? "OPERATIONAL" : String(health.status).toUpperCase(),
+         health.status === "ok" ? "up" : "warn");
+
+    if (c.threat_intelligence) {
+      cell("Threat Engine", c.threat_intelligence.status === "ok" ? "ONLINE" : "DEGRADED",
+           c.threat_intelligence.status === "ok" ? "up" : "warn");
+    }
+    if (c.risk_engine) {
+      cell("Analysis Engine", c.risk_engine.status === "ok" ? "ONLINE" : "DEGRADED",
+           c.risk_engine.status === "ok" ? "up" : "warn");
+    }
+
+    var detectors = [c.dga_detector, c.tunnel_detector, c.behavioral_analyzer];
+    var present = detectors.filter(Boolean);
+    if (present.length) {
+      var allOk = present.every(function (d) { return d.status === "ok"; });
+      cell("DNS Analysis", allOk ? "READY" : "DEGRADED", allOk ? "up" : "warn");
+    }
+
+    var gw = c.dns_gateway;
+    if (gw) {
+      // The gateway has three real states and they must not be blurred:
+      // serving, deliberately switched off, or tried and failed to bind.
+      var text = "OFFLINE", level = "off";
+      if (gw.status === "ok")            { text = "ACTIVE";      level = "up"; }
+      else if (gw.status === "disabled") { text = "DISABLED";    level = "off"; }
+      else if (gw.status === "error")    { text = "BIND FAILED"; level = "down"; }
+      else                               { text = String(gw.status).toUpperCase(); }
+      cell("DNS Gateway", text, level);
+    }
+  }
+
+  /* -- risk gauge -------------------------------------------------------- */
+
+  var GAUGE_ARC = Math.PI * 72;   // semicircle of radius 72
+
+  function riskGauge(score) {
+    var wrap = el("div", "gauge-wrap");
+    var colour = scoreColor(score);
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 168 96");
+
+    function arc(cls) {
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M 12 88 A 72 72 0 0 1 156 88");
+      path.setAttribute("class", cls);
+      return path;
+    }
+    svg.appendChild(arc("gauge-track"));
+    var fill = arc("gauge-fill");
+    fill.style.stroke = colour;
+    fill.style.strokeDasharray = GAUGE_ARC + " " + GAUGE_ARC;
+    // start empty, then let the CSS transition run it up to the real value
+    fill.style.strokeDashoffset = GAUGE_ARC;
+    svg.appendChild(fill);
+    wrap.appendChild(svg);
+
+    var num = el("div", "gauge-num", score);
+    num.style.color = colour;
+    wrap.appendChild(num);
+    wrap.appendChild(el("div", "gauge-den", "/ 100"));
+
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        fill.style.strokeDashoffset = GAUGE_ARC * (1 - Math.max(0, Math.min(100, score)) / 100);
+      });
+    });
+    return wrap;
+  }
+
+  /* The decision, at the size it deserves. Same numbers as the old verdict
+     block - risk_score, classification, decision, recommended_action - laid
+     out so the verdict is the first thing read from across a room. */
+  function renderHero(result) {
+    var host = el("div", "hero");
+    var grid = el("div", "hero-grid");
+
+    var left = el("div", "gauge-cell");
+    left.appendChild(el("div", "gauge-label", "Risk Score"));
+    left.appendChild(riskGauge(result.risk_score));
+
+    var dec = el("div", "gauge-decision");
+    var verdict = el("div", "gauge-verdict");
+    verdict.style.color = STATUS[result.decision] || "var(--text)";
+    verdict.appendChild(el("span", "led"));
+    verdict.appendChild(el("span", null, result.decision));
+    dec.appendChild(verdict);
+    dec.appendChild(el("div", "gauge-class", result.classification));
+    left.appendChild(dec);
+    grid.appendChild(left);
+
+    var body = el("div", "hero-body");
+    body.appendChild(el("div", "hero-domain", result.domain));
+
+    var meta = el("div", "hero-meta");
+    function fact(k, v) {
+      var d = el("div");
+      d.appendChild(el("b", null, k + " "));
+      d.appendChild(document.createTextNode(v));
+      meta.appendChild(d);
+    }
+    fact("REGISTRABLE", result.registrable_domain || "-");
+    fact("ELAPSED", result.analysis_time_ms + " ms");
+    if (result.confidence !== undefined) {
+      fact("EVIDENCE COVERAGE", (result.confidence * 100).toFixed(0) + "%");
+    }
+    body.appendChild(meta);
+
+    var action = el("div", "action");
+    action.appendChild(el("b", null, "Recommended action"));
+    action.appendChild(document.createTextNode(result.recommended_action));
+    body.appendChild(action);
+
+    grid.appendChild(body);
+    host.appendChild(grid);
+    return host;
+  }
+
+  /* -- evidence pipeline ------------------------------------------------- */
+
+  /* One node per stage the backend actually runs, in the order it runs them.
+     `state` is derived only from what the payload says: a detector that
+     abstained is IDLE and grey, never green - "found nothing" is not
+     evidence of safety, which is the rule the whole engine is built on. */
+  function pipelineStages(result) {
+    var t = result.stage_timings_ms || {};
+    var ti = result.threat_intelligence || {};
+    var dga = result.dga_analysis || {};
+    var tun = result.tunnel_analysis || {};
+    var beh = result.behavioral_analysis || {};
+    var nc = (result.domain_features || {}).name_classification;
+
+    function sigState(name, hitText, quietText) {
+      var s = signalOf(result, name);
+      if (!s || !s.used_in_fusion) return { state: "idle", text: "ABSTAINED" };
+      if (s.score >= 70) return { state: "hit", text: hitText };
+      if (s.score >= 30) return { state: "warn", text: hitText };
+      return { state: "active", text: quietText };
+    }
+
+    var tiState = ti.verdict === "MALICIOUS" ? { state: "hit", text: "MALICIOUS" }
+      : ti.verdict === "SUSPICIOUS" ? { state: "warn", text: "SUSPICIOUS" }
+      : ti.verdict === "TRUSTED" ? { state: "clear", text: "TRUSTED" }
+      : { state: "idle", text: "NO MATCH" };
+
+    var dgaS = sigState("dga", "DGA LIKELY", "LOW SUSPICION");
+    var lexS = sigState("lexical", "SUSPICIOUS", "NORMAL");
+    var tunS = (tun.indicators && tun.indicators.length)
+      ? { state: "hit", text: "DETECTED" } : { state: "idle", text: "NONE" };
+    var behS = (beh.indicators && beh.indicators.length)
+      ? { state: "hit", text: "ANOMALY" } : { state: "idle", text: "NONE" };
+
+    var used = (result.signals || []).filter(function (s) { return s.used_in_fusion; });
+
+    return [
+      { name: "DNS Query", state: "active", text: "PARSED", ms: (t.normalize || 0) + (t.features || 0),
+        detail: nc ? (KIND_LABEL[nc.kind] || nc.kind) : result.registrable_domain },
+      { name: "Threat Intelligence", state: tiState.state, text: tiState.text, ms: t.threat_intel,
+        detail: ti.matched_indicator
+          ? "matched " + ti.matched_indicator + " (" + (ti.match_type || "match") + ")"
+          : (ti.description || "") },
+      { name: "DGA Analysis", state: dgaS.state, text: dgaS.text, ms: t.dga,
+        detail: dga.score !== undefined
+          ? "suspicion " + dga.score.toFixed(2) + " · " + (dga.model || "model") : "" },
+      { name: "Lexical Analysis", state: lexS.state, text: lexS.text, ms: t.lexical,
+        detail: (function () {
+          var s = signalOf(result, "lexical");
+          return s ? "signal " + s.score.toFixed(0) + " / 100" : "";
+        })() },
+      { name: "DNS Tunnelling", state: tunS.state, text: tunS.text, ms: t.tunnel,
+        detail: (tun.indicators && tun.indicators.length)
+          ? tun.indicators.join(", ") : (tun.method || "") },
+      { name: "Behavioural Analysis", state: behS.state, text: behS.text, ms: t.behavioral,
+        detail: (beh.indicators && beh.indicators.length)
+          ? beh.indicators.join(", ")
+          : (beh.observations && beh.observations.queries_in_window !== undefined
+             ? beh.observations.queries_in_window + " queries in the last "
+               + beh.observations.window_minutes + " min" : "") },
+      { name: "Risk Fusion", state: "active", text: used.length + " / " + (result.signals || []).length + " SIGNALS",
+        ms: t.risk_engine,
+        detail: "confidence-weighted average of the signals that reported"
+          + (result.overrides_applied && result.overrides_applied.length
+             ? " · overrides: " + result.overrides_applied.join(", ") : "") },
+      { name: "Final Decision",
+        state: result.decision === "BLOCK" ? "hit"
+             : result.decision === "MONITOR" ? "warn" : "clear",
+        text: result.decision, ms: null,
+        detail: "score " + result.risk_score + " / 100 → " + result.classification }
+    ];
+  }
+
+  function renderEvidencePipeline(result) {
+    var p = panel("Detection Pipeline");
+    var pipe = el("div", "evpipe");
+
+    pipelineStages(result).forEach(function (stage, i) {
+      if (i) pipe.appendChild(el("div", "evrail", "↓"));
+      var node = el("div", "evnode is-" + stage.state);
+
+      // Every cell is emitted even when empty, so all eight rows keep the
+      // same five columns and the strip stays aligned down the page.
+      node.appendChild(el("span", "evdot"));
+      node.appendChild(el("div", "evname", stage.name));
+      var detail = el("div", "evdetail", stage.detail || "");
+      if (stage.detail) detail.title = stage.detail;   // full text on hover
+      node.appendChild(detail);
+      node.appendChild(el("div", "evtime",
+        stage.ms === null || stage.ms === undefined ? "" : stage.ms.toFixed(3) + " ms"));
+      node.appendChild(el("div", "evstate " + stage.state, stage.text));
+
+      pipe.appendChild(node);
+    });
+
+    p.appendChild(pipe);
+    p.appendChild(el("div", "note",
+      "Stage timings are the backend's own perf_counter measurements from "
+      + "stage_timings_ms. A grey node means the detector abstained: it "
+      + "reported no usable information and was removed from the weighted "
+      + "average entirely, which is not the same as reporting safety."));
+    return p;
+  }
+
+  /* -- evidence cards ---------------------------------------------------- */
+
+  function evidenceCard(key, state, text, sub) {
+    var card = el("div", "evcard is-" + state);
+    card.appendChild(el("div", "evcard-k", key));
+    var v = el("div", "evcard-v");
+    v.style.color = state === "hit" ? "#e26a6a"
+      : state === "warn" ? "#dda32e"
+      : state === "clear" ? "#35bf35" : "#94a3b8";
+    v.appendChild(el("span", "led"));
+    v.appendChild(el("span", null, text));
+    card.appendChild(v);
+    if (sub) card.appendChild(el("div", "evcard-sub", sub));
+    return card;
+  }
+
+  function renderEvidenceCards(result) {
+    var p = panel("Evidence Summary");
+    var wrap = el("div", "evcards");
+
+    var ti = result.threat_intelligence || {};
+    wrap.appendChild(evidenceCard("Threat Intelligence",
+      ti.verdict === "MALICIOUS" ? "hit" : ti.verdict === "SUSPICIOUS" ? "warn"
+        : ti.verdict === "TRUSTED" ? "clear" : "idle",
+      ti.verdict || "UNKNOWN",
+      ti.matched_indicator
+        ? ti.matched_indicator + (ti.categories && ti.categories.length
+            ? " · " + ti.categories.join(", ") : "")
+        : "no indicator match in " + (ti.source || "the dataset")));
+
+    // DETECTED means the signal actually entered the fusion as evidence.
+    // A detector that abstained says ABSTAINED, never "not detected" - the
+    // two are different claims and the engine treats them differently.
+    var dga = result.dga_analysis || {};
+    var dgaSig = signalOf(result, "dga");
+    var dgaUsed = !!(dgaSig && dgaSig.used_in_fusion);
+    wrap.appendChild(evidenceCard("DGA Analysis",
+      dgaUsed ? (dgaSig.score >= 70 ? "hit" : "warn") : "idle",
+      dgaUsed ? "DETECTED" : "ABSTAINED",
+      (dga.score !== undefined ? "suspicion " + dga.score.toFixed(2) + " / 1.00" : "")
+        + (dga.model ? " · " + dga.model : "")));
+
+    var tun = result.tunnel_analysis || {};
+    var tunHit = !!(tun.indicators && tun.indicators.length);
+    wrap.appendChild(evidenceCard("DNS Tunnelling",
+      tunHit ? "hit" : "idle",
+      tunHit ? "DETECTED" : "NOT DETECTED",
+      tunHit ? tun.indicators.join(", ")
+        : (tun.method || "heuristic") + " found no indicator"));
+
+    var lex = signalOf(result, "lexical");
+    wrap.appendChild(evidenceCard("Lexical Analysis",
+      lex && lex.used_in_fusion ? (lex.score >= 70 ? "hit" : lex.score >= 30 ? "warn" : "active")
+        : "idle",
+      lex && lex.used_in_fusion ? lex.score.toFixed(0) + " / 100" : "ABSTAINED",
+      lex ? "weight " + lex.weight.toFixed(2) + " · confidence "
+        + lex.confidence.toFixed(2) : ""));
+
+    var beh = result.behavioral_analysis || {};
+    var behHit = !!(beh.indicators && beh.indicators.length);
+    var behSig = signalOf(result, "behavioral");
+    wrap.appendChild(evidenceCard("Behavioural",
+      behHit ? "hit" : "idle",
+      behHit ? "ANOMALY" : (behSig && behSig.used_in_fusion ? "NORMAL" : "ABSTAINED"),
+      behHit ? beh.indicators.join(", ")
+        : (beh.observations
+            ? beh.observations.queries_in_window + " queries seen in "
+              + beh.observations.window_minutes + " min"
+            : "")));
+
+    p.appendChild(wrap);
+    return p;
+  }
+
+  /* -- why this decision ------------------------------------------------- */
+
+  /* Reads risk_factors, which IS the computation: the contributions sum to
+     the score. Positive contributors are listed first, largest first; the
+     zero-contribution INFO factors are the detectors that looked and found
+     nothing, and they are listed too, because "we checked and there was
+     nothing" is part of the explanation. Nothing here is written by hand. */
+  function renderWhy(result) {
+    var factors = (result.risk_factors || []).slice();
+    if (!factors.length) return null;
+
+    var contributing = factors.filter(function (f) { return f.contribution > 0; })
+      .sort(function (a, b) { return b.contribution - a.contribution; });
+    var quiet = factors.filter(function (f) { return f.contribution <= 0; });
+
+    var p = panel("Why This Decision?");
+    var list = el("div", "why");
+
+    contributing.forEach(function (f) {
+      var row = el("div", "why-row " + (f.severity === "CRITICAL" || f.severity === "HIGH"
+        ? "why-crit" : "why-add"));
+      row.appendChild(el("div", "why-mark", "+"));
+      row.appendChild(el("div", "why-pts", f.contribution.toFixed(1)));
+      var body = el("div");
+      body.appendChild(el("div", "why-text", f.label));
+      if (f.detail) body.appendChild(el("div", "why-sub", f.detail));
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+
+    quiet.forEach(function (f) {
+      var row = el("div", "why-row why-none");
+      row.appendChild(el("div", "why-mark", "✓"));
+      row.appendChild(el("div", "why-pts", f.contribution ? f.contribution.toFixed(1) : "0.0"));
+      var body = el("div");
+      body.appendChild(el("div", "why-text", f.label));
+      if (f.detail) body.appendChild(el("div", "why-sub", f.detail));
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+
+    p.appendChild(list);
+
+    var sum = factors.reduce(function (a, f) { return a + f.contribution; }, 0);
+    var final = el("div", "why-final");
+    var k = el("div");
+    k.appendChild(el("div", "why-final-k", "Final Decision"));
+    k.appendChild(el("div", "evtime",
+      "contributions sum to " + sum.toFixed(1) + " = risk score " + result.risk_score));
+    final.appendChild(k);
+
+    var v = el("div", "why-final-v");
+    v.style.color = STATUS[result.decision] || "var(--text)";
+    v.appendChild(el("span", "led"));
+    v.appendChild(el("span", null, result.decision));
+    final.appendChild(v);
+    p.appendChild(final);
+    return p;
+  }
+
   /* Panel order on the Analyse view. Every detector appears for every
      result, including the ones that abstained - a detector that vanishes
      tells an analyst nothing about whether it ran. */
   var PANELS = [
-    renderVerdict, renderClassification, renderFactors, renderSignals,
+    renderHero, renderEvidencePipeline, renderEvidenceCards, renderWhy,
+    renderClassification, renderFactors, renderSignals,
     renderIntel, renderDGA, renderTunnel, renderBehavioral, renderFeatures
   ];
 
@@ -960,6 +1330,7 @@
       return;
     }
     var health = response.data;
+    renderSysbar(health);
     var ti = health.components.threat_intelligence;
     var dga = health.components.dga_detector;
     $("statusLine").innerHTML =

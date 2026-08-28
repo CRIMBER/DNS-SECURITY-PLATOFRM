@@ -77,7 +77,8 @@
    * Tabs
    * ===================================================================== */
 
-  var VIEWS = ["overview", "analyse", "activity", "dns", "analytics"];
+  var VIEWS = ["overview", "filtering", "analyse", "capture", "intel",
+               "activity", "dns", "analytics"];
 
   function showTab(name) {
     VIEWS.forEach(function (view) {
@@ -89,6 +90,9 @@
     if (name === "overview" || name === "analytics") loadStats();
     if (name === "activity") loadEvents();
     if (name === "dns" && window.DNSView) window.DNSView.load();
+    if (name === "filtering" && window.FilteringView) window.FilteringView.load();
+    if (name === "capture" && window.CaptureView) window.CaptureView.load();
+    if (name === "intel" && window.IntelView) window.IntelView.load();
     if (name === "analyse") $("domainInput").focus();
   }
 

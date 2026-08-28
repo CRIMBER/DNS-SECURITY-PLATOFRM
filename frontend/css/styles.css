@@ -305,3 +305,92 @@ footer {
   margin-top: 32px; padding-top: 15px; border-top: 1px solid var(--border);
   color: var(--text-mute); font-size: 11.5px; line-height: 1.6;
 }
+
+/* -- resolution pipeline (DNS Filtering view) ---------------------------- */
+/* Same panel/border/mono language as the rest of the console; a stage is a
+   small raised card, and the badge on it carries the backend's own state. */
+
+.pipeline { display: grid; gap: 0; }
+.pipe-stage {
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: 6px; padding: 11px 14px;
+}
+.pipe-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pipe-num {
+  font-family: var(--mono); font-size: 11px; color: var(--text-mute);
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px;
+}
+.pipe-title {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: .06em; color: var(--text);
+}
+.pipe-detail { color: var(--text-dim); font-size: 12.5px; margin-top: 5px; }
+.pipe-arrow {
+  text-align: center; color: var(--text-mute); font-size: 15px;
+  line-height: 1; padding: 4px 0;
+}
+
+/* -- horizontal flow (capture pipeline) ---------------------------------- */
+
+.flow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.flow-step {
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: 5px; padding: 7px 12px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .05em;
+  color: var(--text-dim); white-space: nowrap;
+}
+.flow-arrow { color: var(--text-mute); font-size: 14px; }
+
+/* -- protocol and feed rows ---------------------------------------------- */
+
+.proto-row, .feed-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-top: 14px;
+}
+.proto-row:first-child, .feed-row:first-child { margin-top: 0; }
+.proto-name, .feed-name {
+  font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--text);
+}
+.proto-detail {
+  color: var(--text-dim); font-size: 12.5px; line-height: 1.55;
+  margin-top: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.feed-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.feed-meta { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+/* -- filter result ------------------------------------------------------- */
+
+.filter-verdict { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.filter-line {
+  display: grid; grid-template-columns: 190px 1fr; gap: 6px 16px;
+  padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.filter-line:last-of-type { border-bottom: none; }
+.filter-k { color: var(--text-dim); }
+.filter-v { font-family: var(--mono); word-break: break-word; }
+.filter-v.good { color: var(--safe); }
+.filter-v.bad  { color: var(--critical); }
+.perf-verdict { margin-top: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* -- capture upload ------------------------------------------------------ */
+
+.upload-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 4px 0 16px;
+}
+.upload-btn {
+  display: inline-block; cursor: pointer;
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: 5px; padding: 9px 18px;
+  font-size: 13px; font-weight: 600; color: var(--text-dim);
+  transition: border-color .12s, color .12s;
+}
+.upload-btn:hover { border-color: var(--accent); color: var(--text); }
+.support-row { display: flex; gap: 26px; flex-wrap: wrap; }
+.support-item { flex: 1; min-width: 240px; }
+.support-item > div:first-child {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}

@@ -285,7 +285,63 @@
     return box;
   }
 
+  /* Source IP monitoring. Real telemetry: the gateway records the client
+     address of every query it answers, subject to dns_log_client_ip. The
+     endpoint reports that setting, and it is shown, because "one row for
+     127.0.0.1" means the policy is loopback_only - not that one host made
+     every query. */
+  function renderSources(data) {
+    var host = $("sourceIpTable");
+    host.innerHTML = "";
+    var rows = data.sources || [];
+
+    if (!rows.length) {
+      Charts.empty(host, data.client_ip_logging === "none"
+        ? "Client addresses are not being recorded."
+        : "No DNS query with a recorded client address yet.");
+      host.appendChild(el("div", "note", data.note));
+      return;
+    }
+
+    var wrap = el("div", "table-scroll");
+    var table = el("table");
+    var head = el("tr");
+    ["Source IP", "Queries", "Unique Domains", "Blocked", "Monitored",
+     "Threat Rate", "Max Risk", "Last Seen"]
+      .forEach(function (h) { head.appendChild(el("th", null, h)); });
+    table.appendChild(head);
+    rows.forEach(function (s) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, s.source_ip));
+      tr.appendChild(el("td", "num", s.queries));
+      tr.appendChild(el("td", "num", s.unique_domains));
+      tr.appendChild(el("td", "num", s.blocked));
+      tr.appendChild(el("td", "num", s.monitored));
+      var rate = el("td", "num", s.threat_rate + "%");
+      rate.style.color = s.threat_rate >= 25 ? "var(--critical)"
+        : s.threat_rate > 0 ? "var(--warning)" : "var(--text-dim)";
+      tr.appendChild(rate);
+      var risk = el("td", "num", s.max_risk_score);
+      risk.style.color = U.scoreColor(s.max_risk_score);
+      tr.appendChild(risk);
+      tr.appendChild(el("td", null, U.shortTime(s.last_seen)));
+      table.appendChild(tr);
+    });
+    wrap.appendChild(table);
+    host.appendChild(wrap);
+
+    var note = "Client-IP logging policy: " + data.client_ip_logging + ". " + data.note;
+    if (data.queries_without_client_address) {
+      note += " " + data.queries_without_client_address + " queries have no "
+        + "recorded address and are not attributed to any row.";
+    }
+    host.appendChild(el("div", "note", note));
+  }
+
   function load() {
+    U.request("/api/sources").then(function (r) {
+      if (r.ok) renderSources(r.data);
+    });
     U.request("/api/dns/status").then(function (r) {
       if (r.ok) renderStatus(r.data);
     });

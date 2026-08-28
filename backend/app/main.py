@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api import routes
 from .config import get_risk_config, get_settings
+from .api.routes import CaptureUploadError
 from .core.normalizer import DomainValidationError
 from .dns_gateway import build_gateway, get_gateway, set_gateway
 from .dns_gateway.server import DNSGatewayBindError
@@ -99,6 +100,12 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(DomainValidationError)
     async def _handle_domain_error(request: Request, exc: DomainValidationError):
+        return _error(400, exc.code, exc.message)
+
+    @app.exception_handler(CaptureUploadError)
+    async def _handle_capture_error(request: Request, exc: CaptureUploadError):
+        # An unreadable capture is the uploader's problem to fix, so say what
+        # was wrong with the file rather than returning a server error.
         return _error(400, exc.code, exc.message)
 
     @app.exception_handler(RequestValidationError)

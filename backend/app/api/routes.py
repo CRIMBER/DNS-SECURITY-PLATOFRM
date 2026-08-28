@@ -11,8 +11,18 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from ..capture import (
+    CaptureQuery,
+    PcapFormatError,
+    ZeekFormatError,
+    analyse_capture,
+    extract_dns_queries,
+    read_zeek_dns_log,
+)
+from ..capture.pcap import MAX_PACKETS as PCAP_MAX_PACKETS
+from ..capture.report import MAX_UNIQUE_DOMAINS
 from ..config import get_risk_config, get_settings
 from ..core.features import BRANDS, SUSPICIOUS_KEYWORDS, SUSPICIOUS_TLD_WEIGHTS, extract_features
 from ..core.lexical import score_lexical
@@ -44,6 +54,20 @@ from ..schemas import (
 from ..storage.events import get_event_repository
 
 router = APIRouter()
+
+# A capture arrives as a raw request body rather than a multipart form, so no
+# extra dependency is needed to accept one. Uploads are bounded because a
+# capture is untrusted input like any other.
+MAX_UPLOAD_BYTES = 25_000_000
+
+
+class CaptureUploadError(Exception):
+    """A capture could not be read. Carries a code the dashboard can show."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -408,3 +432,245 @@ async def dns_events(
             limit=limit, offset=offset, decision=decision, query=q, event_type="dns"
         )
     )
+
+
+# -- source telemetry --------------------------------------------------------
+
+
+@router.get("/sources", tags=["dns"])
+async def source_ips(limit: int = Query(50, ge=1, le=500)):
+    """Query volume and block rate per client address.
+
+    Real telemetry from the gateway's own event log, not a projection. What
+    it can show depends on the ``dns_log_client_ip`` setting, which is
+    reported alongside the rows so the numbers are read in the right light:
+    ``loopback_only`` (the default) records an address only for local
+    clients, ``always`` records every client, ``none`` records none.
+    """
+    settings = get_settings()
+    payload = get_event_repository().source_ip_stats(limit=limit)
+    payload["client_ip_logging"] = settings.dns_log_client_ip
+    payload["note"] = {
+        "none": "Client addresses are not recorded, so no source can be "
+                "attributed. Set DNS_LOG_CLIENT_IP=always to enable.",
+        "loopback_only": "Only loopback clients have their address recorded "
+                         "(the default). A deployment serving real clients "
+                         "sets DNS_LOG_CLIENT_IP=always.",
+        "always": "Every client address is recorded.",
+    }.get(settings.dns_log_client_ip, "")
+    return payload
+
+
+# -- capture analysis --------------------------------------------------------
+
+
+@router.get("/capture/support", tags=["capture"])
+async def capture_support():
+    """What the offline readers actually handle. Stated, not implied."""
+    return {
+        "pcap": {
+            "status": "IMPLEMENTED",
+            "formats": ["libpcap (classic)", "pcapng"],
+            "link_types": ["Ethernet", "raw IP", "Linux SLL",
+                           "Linux SLL2", "null/loopback"],
+            "network": ["IPv4", "IPv6"],
+            "transport": ["UDP/53", "TCP/53 (first segment)"],
+            "parser": "dnspython wire-format parsing - the library the gateway uses",
+            "max_packets": PCAP_MAX_PACKETS,
+        },
+        "zeek": {
+            "status": "IMPLEMENTED",
+            "formats": ["dns.log TSV (#fields header)"],
+            "not_supported": ["Zeek JSON output"],
+            "columns_used": ["ts", "id.orig_h", "id.resp_h", "query",
+                             "qtype_name", "rcode_name"],
+        },
+        "analysis": {
+            "engine": "the same pipeline used by /api/analyze and the resolver",
+            "max_unique_domains": MAX_UNIQUE_DOMAINS,
+            "writes_to_event_log": False,
+            "note": "Capture verdicts are not written to the event store. A "
+                    "capture is another network's traffic; recording it as this "
+                    "resolver's history would corrupt the behavioural detector, "
+                    "which scores a domain by what it has done here.",
+        },
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
+    }
+
+
+async def _read_upload(request: Request) -> bytes:
+    body = await request.body()
+    if not body:
+        raise CaptureUploadError("EMPTY_UPLOAD", "No file content was received.")
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise CaptureUploadError(
+            "UPLOAD_TOO_LARGE",
+            "The capture is {:.1f} MB; the limit is {:.0f} MB.".format(
+                len(body) / 1e6, MAX_UPLOAD_BYTES / 1e6
+            ),
+        )
+    return body
+
+
+@router.post("/capture/pcap", tags=["capture"])
+async def analyse_pcap(request: Request):
+    """Extract DNS queries from a packet capture and score every unique name.
+
+    The request body is the raw file. Every verdict comes from the pipeline
+    that serves ``/api/analyze``; nothing here re-implements detection.
+    """
+    body = await _read_upload(request)
+    try:
+        found = extract_dns_queries(body)
+    except PcapFormatError as exc:
+        raise CaptureUploadError("INVALID_PCAP", str(exc))
+
+    report = analyse_capture(
+        [
+            CaptureQuery(
+                domain=q.domain, query_type=q.query_type, source_ip=q.source_ip,
+                dest_ip=q.dest_ip, timestamp=q.timestamp,
+                is_response=q.is_response,
+            )
+            for q in found
+        ],
+        origin="pcap",
+    )
+    report["capture_bytes"] = len(body)
+    report["dns_packets_seen"] = len(found)
+    return report
+
+
+@router.post("/capture/zeek", tags=["capture"])
+async def analyse_zeek(request: Request):
+    """Read a Zeek dns.log (TSV) and score every unique query it recorded."""
+    body = await _read_upload(request)
+    try:
+        rows = read_zeek_dns_log(body)
+    except ZeekFormatError as exc:
+        raise CaptureUploadError("INVALID_ZEEK_LOG", str(exc))
+
+    report = analyse_capture(
+        [
+            CaptureQuery(
+                domain=r.domain, query_type=r.query_type, source_ip=r.source_ip,
+                dest_ip=r.dest_ip, timestamp=r.timestamp,
+                extra={"rcode": r.rcode} if r.rcode else {},
+            )
+            for r in rows
+        ],
+        origin="zeek",
+    )
+    report["capture_bytes"] = len(body)
+    report["log_rows"] = len(rows)
+    return report
+
+
+# -- threat intelligence -----------------------------------------------------
+
+
+@router.get("/intel/summary", tags=["intel"])
+async def intel_summary():
+    """What the threat-intelligence layer is actually backed by.
+
+    Feed connectivity is reported as it is, not as a product sheet would like
+    it. The bundled dataset is synthetic and local; no external feed is
+    contacted, and none is claimed to be.
+    """
+    provider = get_threat_intel_provider()
+    stats = provider.stats()
+    return {
+        "provider": stats,
+        "feeds": [
+            {
+                "name": "Local IOC database",
+                "state": "ACTIVE",
+                "detail": "Bundled dataset, queried on every analysis.",
+                "indicators": stats.get("indicators_total", 0),
+                "last_updated": stats.get("last_updated"),
+            },
+            {
+                "name": "Trusted allowlist",
+                "state": "ACTIVE",
+                "detail": "Known-good domains. An allowlist entry is a "
+                          "statement about reputation, so tunnelling or "
+                          "behavioural evidence sets it aside.",
+                "indicators": stats.get("trusted_total", 0),
+                "last_updated": stats.get("last_updated"),
+            },
+            {
+                "name": "STIX/TAXII collection",
+                "state": "NOT_CONNECTED",
+                "detail": "No TAXII client exists in this build. The interface "
+                          "it would implement is ThreatIntelProvider in "
+                          "backend/app/intel/base.py - one class, plus one line "
+                          "in get_threat_intel_provider().",
+                "indicators": 0,
+                "last_updated": None,
+            },
+            {
+                "name": "Commercial feed",
+                "state": "NOT_CONNECTED",
+                "detail": "Deliberately out of scope for the prototype. Same "
+                          "extension point as above.",
+                "indicators": 0,
+                "last_updated": None,
+            },
+        ],
+        "honesty_note": "The bundled indicators are SYNTHETIC and use reserved "
+                        "namespaces (.test/.invalid/.example). No real malicious "
+                        "infrastructure is listed, and the platform never "
+                        "resolves or contacts an indicator.",
+    }
+
+
+# -- protocol visibility -----------------------------------------------------
+
+
+@router.get("/protocols", tags=["dns"])
+async def protocols():
+    """Which DNS transports this build actually serves."""
+    gateway = get_gateway()
+    status = gateway.status() if gateway is not None else {}
+    tcp = (status.get("tcp") or {}) if status else {}
+    settings = get_settings()
+    return {
+        "protocols": [
+            {
+                "name": "DNS over UDP",
+                "short": "UDP",
+                "state": "ACTIVE" if status.get("running") else "CONFIGURED",
+                "port": settings.dns_listen_port,
+                "detail": "Primary transport. Real wire-format DNS, parsed and "
+                          "re-serialised with dnspython.",
+            },
+            {
+                "name": "DNS over TCP",
+                "short": "TCP",
+                "state": "ACTIVE" if tcp.get("running") else "CONFIGURED",
+                "port": settings.dns_listen_port,
+                "detail": "Same port, 2-byte length-prefixed framing. Required "
+                          "for truncated-response retries; identical policy to UDP.",
+            },
+            {
+                "name": "DNS over TLS",
+                "short": "DoT",
+                "state": "NOT_IMPLEMENTED",
+                "port": 853,
+                "detail": "No TLS listener in this build. It would wrap the "
+                          "existing TCP handler, which already frames DNS.",
+            },
+            {
+                "name": "DNS over HTTPS",
+                "short": "DoH",
+                "state": "NOT_IMPLEMENTED",
+                "port": 443,
+                "detail": "No RFC 8484 endpoint in this build. It would reuse "
+                          "the same handler behind an HTTP route.",
+            },
+        ],
+        "note": "ACTIVE means a socket is bound right now. CONFIGURED means the "
+                "transport is built and enabled but the gateway is not running. "
+                "NOT_IMPLEMENTED means the code does not exist - it is not "
+                "switched off, it is absent.",
+    }

@@ -478,6 +478,7 @@ class EventRepository:
             ]
 
         p95 = gateway_times[int(len(gateway_times) * 0.95)] if gateway_times else 0.0
+        p99 = gateway_times[int(len(gateway_times) * 0.99)] if gateway_times else 0.0
 
         buckets: Dict[str, Dict[str, int]] = {}
         for row in activity_rows:
@@ -503,12 +504,66 @@ class EventRepository:
                 "mean_upstream_time_ms": round(upstream_timing["upstream"] or 0.0, 3),
                 "mean_total_gateway_time_ms": round(timing["total"] or 0.0, 3),
                 "p95_total_gateway_time_ms": round(p95, 3),
+                "p99_total_gateway_time_ms": round(p99, 3),
+                "measured_queries": len(gateway_times),
                 "slowest_total_gateway_time_ms": round(timing["slowest"] or 0.0, 3),
                 "note": "Analysis, upstream and end-to-end gateway time are "
                         "measured separately with perf_counter. Upstream mean "
                         "excludes cache hits. End-to-end excludes client network "
                         "time.",
             },
+        }
+
+
+    def source_ip_stats(self, limit: int = 50) -> Dict[str, Any]:
+        """Query volume and block rate per client address.
+
+        Real telemetry, not a projection: the gateway already records the
+        client address of every query it answers, subject to the
+        ``dns_log_client_ip`` setting. That setting defaults to
+        ``loopback_only``, so on a workstation this returns one row for
+        127.0.0.1 and on a deployment configured with ``always`` it returns
+        one row per client. Both are honest; the caller is told which.
+        """
+        with connect(self.path) as connection:
+            rows = connection.execute(
+                "SELECT client_address AS ip, COUNT(*) AS queries, "
+                "COUNT(DISTINCT domain) AS unique_domains, "
+                "COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked, "
+                "COALESCE(SUM(CASE WHEN decision = 'MONITOR' THEN 1 ELSE 0 END), 0) "
+                "    AS monitored, "
+                "COALESCE(MAX(risk_score), 0) AS max_risk, "
+                "MAX(ts_utc) AS last_seen "
+                "FROM events WHERE event_type = 'dns' AND client_address IS NOT NULL "
+                "GROUP BY client_address ORDER BY blocked DESC, queries DESC "
+                "LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+            unattributed = connection.execute(
+                "SELECT COUNT(*) AS n FROM events "
+                "WHERE event_type = 'dns' AND client_address IS NULL"
+            ).fetchone()["n"]
+
+        sources = []
+        for row in rows:
+            queries = row["queries"] or 0
+            sources.append({
+                "source_ip": row["ip"],
+                "queries": queries,
+                "unique_domains": row["unique_domains"] or 0,
+                "blocked": row["blocked"] or 0,
+                "monitored": row["monitored"] or 0,
+                "max_risk_score": row["max_risk"] or 0,
+                "threat_rate": round(100.0 * (row["blocked"] or 0) / queries, 1)
+                if queries else 0.0,
+                "last_seen": row["last_seen"],
+            })
+
+        return {
+            "sources": sources,
+            "source_count": len(sources),
+            "queries_without_client_address": unattributed,
         }
 
 

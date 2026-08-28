@@ -46,7 +46,7 @@
     var tiles = el("div", "tiles");
     [
       ["Indicators", p.indicators_total || 0, "malicious + suspicious"],
-      ["Trusted", p.trusted_total || 0, "allowlisted domains"],
+      ["Trusted", p.trusted_domains || 0, "allowlisted domains"],
       ["Source", null, null]
     ].forEach(function (item) {
       if (item[1] === null) return;

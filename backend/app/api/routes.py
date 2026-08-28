@@ -595,7 +595,7 @@ async def intel_summary():
                 "detail": "Known-good domains. An allowlist entry is a "
                           "statement about reputation, so tunnelling or "
                           "behavioural evidence sets it aside.",
-                "indicators": stats.get("trusted_total", 0),
+                "indicators": stats.get("trusted_domains", 0),
                 "last_updated": stats.get("last_updated"),
             },
             {

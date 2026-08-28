@@ -414,6 +414,22 @@ class TestTelemetryEndpoints:
         assert states["Commercial feed"] == "NOT_CONNECTED"
         assert "SYNTHETIC" in body["honesty_note"]
 
+    def test_intel_summary_reports_the_real_trusted_count(self, client):
+        """The trusted-allowlist row must show the allowlist actually loaded.
+
+        Regression: the row read a key the provider does not emit
+        (trusted_total vs trusted_domains), so a corpus of 82 domains was
+        displayed as 0 - the dashboard understating its own evidence base.
+        """
+        body = client.get("/api/intel/summary").json()
+        feeds = {f["name"]: f for f in body["feeds"]}
+        trusted = feeds["Trusted allowlist"]
+
+        # Pinned against the provider rather than a literal, so a future key
+        # rename fails here instead of silently reading zero again.
+        assert trusted["indicators"] == body["provider"]["trusted_domains"]
+        assert trusted["indicators"] == 82
+
     def test_protocols_marks_only_what_exists(self, client):
         body = client.get("/api/protocols").json()
         states = {p["short"]: p["state"] for p in body["protocols"]}

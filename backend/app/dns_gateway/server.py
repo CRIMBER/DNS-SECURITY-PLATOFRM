@@ -9,6 +9,7 @@ one policy; only the framing differs (see ``tcp.py``).
 """
 
 import asyncio
+import ipaddress
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Tuple
@@ -84,6 +85,21 @@ class DNSGateway:
     def listen_address(self) -> str:
         return "{}:{}".format(self.host, self.port)
 
+    @staticmethod
+    def is_network_facing(host: str) -> bool:
+        """Whether this listen address accepts queries from other machines.
+
+        ``0.0.0.0`` and ``::`` mean every interface; any concrete non-loopback
+        address means at least one real one. A name we cannot parse is treated
+        as exposed, because guessing "probably local" about a listen address is
+        the wrong way to be wrong.
+        """
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return address.is_unspecified or not address.is_loopback
+
     async def start(self) -> None:
         """Bind the UDP socket. Raises ``DNSGatewayBindError`` on failure."""
         if self.running:
@@ -117,6 +133,28 @@ class DNSGateway:
         if bound:
             self.host, self.port = bound[0], bound[1]
         logger.info("DNS gateway listening on %s/udp", self.listen_address)
+
+        # Binding anywhere but loopback puts a working resolver on the network.
+        # That is a deliberate operator choice, not a default, so it is stated
+        # plainly at the moment it happens rather than left to be discovered.
+        if self.is_network_facing(self.host):
+            logger.warning(
+                "DNS gateway is reachable from the network on %s - any host "
+                "that can route to this machine can use it as a resolver.",
+                self.listen_address,
+            )
+            # The privacy default drops non-loopback client addresses, so a LAN
+            # demo resolves correctly while source-IP monitoring stays empty.
+            # That combination looks like a fault and is not one; say so here
+            # instead of changing the default underneath the operator.
+            if getattr(self.handler, "log_client_ip", None) == "loopback_only":
+                logger.warning(
+                    "DNS_LOG_CLIENT_IP=loopback_only, so addresses of "
+                    "non-loopback clients are NOT recorded: LAN queries will "
+                    "be analysed and logged, but source-IP monitoring will "
+                    "show nothing for them. Set DNS_LOG_CLIENT_IP=always to "
+                    "record LAN client addresses."
+                )
 
         # TCP is best-effort: a client that cannot use it still gets UDP, so a
         # TCP bind failure must not take the gateway down. It is reported

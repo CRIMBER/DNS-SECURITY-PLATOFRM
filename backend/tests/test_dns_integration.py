@@ -166,6 +166,60 @@ def run_gateway(gateway_factory):
     return runner
 
 
+@pytest.fixture
+def run_lan_gateway(gateway_factory):
+    """Run a gateway bound to a wildcard address, for the LAN tests only.
+
+    Deliberately separate from ``run_gateway``. The shared fixture builds a
+    loopback gateway and dials ``gateway.host``, which is exactly right for
+    every other test in this file, and this one needs neither of those things
+    changed - so it composes ``gateway_factory`` unaltered rather than adding
+    parameters to it.
+
+    ``DNSGateway.host`` is plain mutable state: ``start()`` reads it and then
+    overwrites it with the address actually bound. Setting it before start is
+    how the class already expects the listen address to be decided.
+    """
+    import contextlib
+    import threading
+
+    @contextlib.contextmanager
+    def runner(listen_host="0.0.0.0", **kwargs):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Same ephemeral-port retry as run_gateway, and for the same reason:
+        # UDP port 0 hands back a number the TCP listener then has to get too.
+        for _ in range(6):
+            gateway, repository, resolver = gateway_factory(**kwargs)
+            gateway.host = listen_host
+            loop.run_until_complete(gateway.start())
+            if gateway.tcp is not None and gateway.tcp.running:
+                break
+            loop.run_until_complete(gateway.stop())
+        else:
+            pytest.fail("no ephemeral port had both UDP and TCP free after "
+                        "6 attempts; the machine is out of ephemeral ports")
+
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+
+        # 0.0.0.0 is a bind address, not a destination - sending to it raises
+        # WinError 10049 / EADDRNOTAVAIL. Dial a real interface the wildcard
+        # covers, which is what a LAN client does too.
+        client = DNSTestClient("127.0.0.1", gateway.port)
+        try:
+            yield client, gateway, repository, resolver
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=3)
+            loop.run_until_complete(gateway.stop())
+            loop.close()
+            asyncio.set_event_loop(None)
+
+    return runner
+
+
 # -- 1. safe domain ----------------------------------------------------------
 
 
@@ -582,3 +636,177 @@ class TestDNSOverTCP:
             event = repo.list_events(event_type="dns")["events"][0]
             assert event["domain"] == "ransom-payment-portal.test"
             assert event["blocked"] is True
+
+
+# -- 13. LAN listen address --------------------------------------------------
+
+
+class TestLANListenAddress:
+    """Phase 1A: serving a client that is not on this machine.
+
+    The listen host was already configurable end to end - DNS_LISTEN_HOST ->
+    Settings.dns_listen_host -> build_gateway(host=...) -> the bound socket.
+    Nothing here proves a new capability; it pins the existing one so a later
+    change cannot quietly take LAN access away or, worse, make a
+    network-facing bind the default.
+
+    Every test binds an ephemeral port on 0.0.0.0 and then talks to it over
+    127.0.0.1, which is one of the interfaces 0.0.0.0 covers. That exercises
+    the wildcard bind without depending on this machine having a LAN address,
+    which a CI runner may not.
+    """
+
+    # -- 1. the default is, and stays, loopback -----------------------------
+
+    def test_default_settings_listen_on_loopback(self, monkeypatch):
+        """No DNS_LISTEN_HOST set must mean 127.0.0.1, never a wildcard."""
+        monkeypatch.delenv("DNS_LISTEN_HOST", raising=False)
+        from backend.app.config import Settings
+
+        settings = Settings.from_env()
+        assert settings.dns_listen_host == "127.0.0.1"
+        assert not DNSGateway.is_network_facing(settings.dns_listen_host)
+
+    def test_default_gateway_binds_loopback_only(self, run_gateway):
+        with run_gateway() as (client, gateway, repo, resolver):
+            assert gateway.host == "127.0.0.1"
+            assert gateway.status()["listen_address"].startswith("127.0.0.1:")
+
+    def test_loopback_is_not_reported_as_network_facing(self):
+        for host in ("127.0.0.1", "127.0.0.5", "::1"):
+            assert DNSGateway.is_network_facing(host) is False, host
+
+    def test_wildcard_and_lan_addresses_are_network_facing(self):
+        for host in ("0.0.0.0", "::", "192.168.1.5", "10.0.0.7", "8.8.8.8"):
+            assert DNSGateway.is_network_facing(host) is True, host
+
+    def test_unparseable_host_is_treated_as_exposed(self):
+        """Fail towards 'assume reachable' rather than 'assume private'."""
+        assert DNSGateway.is_network_facing("dns.internal.example") is True
+
+    # -- 2. a configured LAN address is honoured ----------------------------
+
+    def test_configured_listen_host_is_honoured(self, run_lan_gateway):
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            assert gateway.host == "0.0.0.0"
+            assert gateway.running
+            assert gateway.bind_error is None
+
+    def test_settings_accept_a_lan_listen_host(self, monkeypatch):
+        monkeypatch.setenv("DNS_LISTEN_HOST", "0.0.0.0")
+        from backend.app.config import Settings
+
+        settings = Settings.from_env()
+        assert settings.dns_listen_host == "0.0.0.0"
+        assert DNSGateway.is_network_facing(settings.dns_listen_host)
+
+    # -- 3. port configuration is unaffected --------------------------------
+
+    def test_port_configuration_still_applies(self, monkeypatch):
+        monkeypatch.setenv("DNS_LISTEN_HOST", "0.0.0.0")
+        monkeypatch.setenv("DNS_LISTEN_PORT", "5399")
+        from backend.app.config import Settings
+
+        settings = Settings.from_env()
+        assert settings.dns_listen_port == 5399
+        assert settings.dns_listen_address == "0.0.0.0:5399"
+
+    def test_bound_port_is_reported_after_binding(self, run_lan_gateway):
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            # Port 0 was requested; the real one must be read back off the
+            # socket, or a client would be told to talk to port 0.
+            assert gateway.port != 0
+            assert gateway.status()["listen_address"] == "0.0.0.0:%d" % gateway.port
+
+    # -- 4. client-IP privacy is unchanged by the listen address ------------
+
+    def test_loopback_only_still_records_a_loopback_client(self, run_lan_gateway):
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            client.query("github.com", "A")
+            event = repo.list_events(event_type="dns")["events"][0]
+            assert event["client_address"] == "127.0.0.1"
+
+    def test_lan_bind_does_not_change_the_logging_policy(self, run_lan_gateway):
+        """Binding wide must not silently widen what is recorded."""
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            assert gateway.handler.log_client_ip == "loopback_only"
+
+    def test_non_loopback_client_is_withheld_under_the_default_policy(self):
+        """The default drops a LAN address - the reason the operator is warned.
+
+        Exercised directly against the policy method, because binding a second
+        real interface is not something a test can rely on having.
+        """
+        handler = DNSRequestHandler(
+            pipeline=get_pipeline(),
+            resolver=StubUpstreamResolver(responder=make_answer),
+            policy=get_policy("NXDOMAIN"),
+            cache=DNSCache(enabled=False),
+            log_client_ip="loopback_only",
+        )
+        assert handler._client_address(("192.168.1.42", 5111)) is None
+        assert handler._client_address(("127.0.0.1", 5111)) == "127.0.0.1"
+
+    def test_always_policy_records_a_lan_address(self):
+        handler = DNSRequestHandler(
+            pipeline=get_pipeline(),
+            resolver=StubUpstreamResolver(responder=make_answer),
+            policy=get_policy("NXDOMAIN"),
+            cache=DNSCache(enabled=False),
+            log_client_ip="always",
+        )
+        assert handler._client_address(("192.168.1.42", 5111)) == "192.168.1.42"
+
+    # -- 5/6/7. the security path is identical when bound to the network ----
+
+    def test_allowed_domain_resolves_when_bound_wide(self, run_lan_gateway):
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            response = client.query("github.com", "A")
+            assert response.rcode() == dns.rcode.NOERROR
+            assert len(response.answer) == 1
+            assert resolver.call_count == 1
+
+    def test_blocked_domain_is_blocked_when_bound_wide(self, run_lan_gateway):
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            assert client.query("malware-c2-panel.test", "A").rcode() \
+                == dns.rcode.NXDOMAIN
+
+    def test_blocked_domain_sends_no_upstream_traffic_when_bound_wide(
+        self, run_lan_gateway
+    ):
+        """The property that matters, re-asserted on the LAN path."""
+        with run_lan_gateway() as (client, gateway, repo, resolver):
+            client.query("botnet-controller.test", "A")
+            assert resolver.call_count == 0
+            assert resolver.calls == []
+
+    def test_block_policy_is_unchanged_by_the_listen_address(self, run_lan_gateway):
+        with run_lan_gateway(block_mode="REFUSED") as (
+            client, gateway, repo, resolver
+        ):
+            assert client.query("malware-c2-panel.test", "A").rcode() \
+                == dns.rcode.REFUSED
+            assert resolver.call_count == 0
+
+    # -- 8. cache behaviour is unchanged ------------------------------------
+
+    def test_cache_still_serves_a_second_query_when_bound_wide(self, run_lan_gateway):
+        with run_lan_gateway(cache_enabled=True) as (
+            client, gateway, repo, resolver
+        ):
+            first = client.query("github.com", "A")
+            second = client.query("github.com", "A")
+            assert first.rcode() == second.rcode() == dns.rcode.NOERROR
+            # One upstream call for two queries: the second was cached.
+            assert resolver.call_count == 1
+            assert gateway.handler.cache.hits == 1
+
+    def test_cache_still_never_serves_a_blocked_domain(self, run_lan_gateway):
+        """A blocked name must not be cached, however the gateway is bound."""
+        with run_lan_gateway(cache_enabled=True) as (
+            client, gateway, repo, resolver
+        ):
+            client.query("malware-c2-panel.test", "A")
+            client.query("malware-c2-panel.test", "A")
+            assert resolver.call_count == 0
+            assert gateway.handler.cache.hits == 0

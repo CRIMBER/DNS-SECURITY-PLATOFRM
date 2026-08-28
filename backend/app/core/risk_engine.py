@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..config import RiskConfig, get_risk_config
+from .classification import independent_scopes
 from .signals import RiskFactor, Severity, Signal, clamp
 
 
@@ -282,9 +283,17 @@ class RiskEngine:
             # Signals that read no span of the name (threat intelligence reads
             # a database, behavioural reads history) are independent of the
             # name-derived ones and of each other, so each counts separately.
-            distinct_evidence = len({
+            #
+            # Distinct KEYS are not enough, because spans nest. On a provider
+            # host the tunnelling detector reads controlled_span - which IS
+            # delegated_span plus the registrant label - so it has already seen
+            # every byte the DGA model scored under a different key. That paid
+            # the bonus for an echo again, the same defect as dga+lexical one
+            # level up. independent_scopes() drops any span another present
+            # span already contains.
+            distinct_evidence = len(independent_scopes(
                 s.scope_key or "signal:" + s.name for s in high_signals
-            })
+            ))
             if distinct_evidence >= int(rule.get("min_signals", 2)):
                 bonus = float(rule.get("bonus", 8))
                 score = move(

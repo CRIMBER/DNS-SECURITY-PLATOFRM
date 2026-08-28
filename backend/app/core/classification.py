@@ -33,7 +33,7 @@ import ipaddress
 import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, FrozenSet, List, Optional
+from typing import Dict, FrozenSet, Iterable, List, Optional, Set
 
 from ..config import load_json_data
 
@@ -109,6 +109,54 @@ CONTROLLED_SPAN = "controlled_span"
 SEMANTIC_TEXT = "semantic_text"
 """The text to read for MEANING. Unicode form for an IDN, so brand and keyword
 matching see what a human sees rather than the punycode."""
+
+
+# -- which spans contain which ----------------------------------------------
+# CONTROLLED_SPAN is DELEGATED_SPAN plus the registrant label by construction,
+# so a detector reading it has already seen every byte a detector reading
+# either of those two saw. DELEGATED_SPAN and REGISTRANT_LABEL share no bytes
+# with each other.
+#
+# The risk engine needs this to tell two observations from one observation
+# reported twice. Comparing scope keys for equality cannot see it: on a
+# provider host the tunnelling detector reads CONTROLLED_SPAN while the DGA
+# model reads REGISTRANT_LABEL - different keys over overlapping bytes, which
+# is how a corroboration bonus came to be paid for an echo.
+#
+# Only the keys detectors actually declare appear here; the rest are read but
+# never used as evidence identity.
+_SCOPE_CONTAINS = {
+    CONTROLLED_SPAN: frozenset({DELEGATED_SPAN, REGISTRANT_LABEL}),
+}
+
+
+def scope_contains(outer: str, inner: str) -> bool:
+    """Whether reading ``outer`` already covers every byte of ``inner``."""
+    if not outer or not inner:
+        return False
+    if outer == inner:
+        return True
+    return inner in _SCOPE_CONTAINS.get(outer, frozenset())
+
+
+def independent_scopes(keys: Iterable[str]) -> Set[str]:
+    """The keys not already covered by another key in the same set.
+
+    ``{controlled_span, registrant_label}`` is one body of evidence rather
+    than two - the second lies inside the first. ``{delegated_span,
+    registrant_label}`` is genuinely two, because they share no bytes.
+
+    Keys naming no span (a signal reading a database or a query history) are
+    contained by nothing and contain nothing, so each counts for itself.
+    """
+    present = {key for key in keys if key}
+    return {
+        key
+        for key in present
+        if not any(
+            other != key and scope_contains(other, key) for other in present
+        )
+    }
 
 
 @dataclass(frozen=True)

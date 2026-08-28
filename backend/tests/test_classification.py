@@ -410,3 +410,109 @@ class TestLatinScriptIDNs:
         codes = {f.code for f in signal.factors}
         assert "BRAND_IMPERSONATION" in codes
         assert "SUSPICIOUS_KEYWORD" in codes
+
+
+class TestEvidenceIndependenceAcrossNestedSpans:
+    """Distinct scope KEYS are not distinct evidence when the spans nest.
+
+    Step 1 pointed the tunnelling detector at controlled_span on provider
+    hosts, so that identical payload bytes read the same under pages.dev as
+    under tunnel.test. That gave tunnel a different scope_key from the DGA
+    model - and controlled_span is delegated_span plus the registrant label,
+    so tunnel had already seen every byte DGA scored. The corroboration bonus
+    fired on the strength of the keys differing, paying +8 for an echo: the
+    same defect as dga+lexical, one level up.
+    """
+
+    def test_the_containment_relation_is_the_declared_one(self):
+        from backend.app.core.classification import scope_contains
+
+        assert scope_contains(CONTROLLED_SPAN, DELEGATED_SPAN)
+        assert scope_contains(CONTROLLED_SPAN, REGISTRANT_LABEL)
+        # Disjoint: the labels below a registered domain and the label of the
+        # domain itself share no bytes.
+        assert not scope_contains(DELEGATED_SPAN, REGISTRANT_LABEL)
+        assert not scope_contains(REGISTRANT_LABEL, DELEGATED_SPAN)
+        # Containment is not symmetric.
+        assert not scope_contains(DELEGATED_SPAN, CONTROLLED_SPAN)
+
+    def test_nested_spans_count_as_one_body_of_evidence(self):
+        from backend.app.core.classification import independent_scopes
+
+        assert independent_scopes([CONTROLLED_SPAN, REGISTRANT_LABEL]) == {
+            CONTROLLED_SPAN}
+        assert independent_scopes([CONTROLLED_SPAN, DELEGATED_SPAN]) == {
+            CONTROLLED_SPAN}
+        assert len(independent_scopes(
+            [CONTROLLED_SPAN, DELEGATED_SPAN, REGISTRANT_LABEL])) == 1
+
+    def test_disjoint_spans_still_count_separately(self):
+        from backend.app.core.classification import independent_scopes
+
+        assert independent_scopes([DELEGATED_SPAN, REGISTRANT_LABEL]) == {
+            DELEGATED_SPAN, REGISTRANT_LABEL}
+
+    def test_signals_reading_no_span_are_independent_of_everything(self):
+        """Threat intelligence reads a database; behavioural reads history."""
+        from backend.app.core.classification import independent_scopes
+
+        assert len(independent_scopes(
+            ["signal:threat_intel", "signal:behavioral", CONTROLLED_SPAN])) == 3
+
+    # -- through the engine ---------------------------------------------------
+
+    @staticmethod
+    def _engine_and_signal():
+        from backend.app.config import get_risk_config
+        from backend.app.core.risk_engine import RiskEngine
+        from backend.app.core.signals import RiskFactor, Severity, Signal
+
+        def signal(name, score, scope):
+            return Signal(
+                name=name, score=score, confidence=0.9, scope_key=scope,
+                factors=[RiskFactor(code="X", label="f", severity=Severity.HIGH,
+                                    detail="d", raw_points=score)],
+            )
+
+        return RiskEngine(get_risk_config()), signal
+
+    def test_a_nested_span_does_not_buy_a_corroboration_bonus(self):
+        """A: the provider-host shape - different key, overlapping bytes."""
+        engine, signal = self._engine_and_signal()
+        result = engine.assess([
+            signal("dga", 90.0, REGISTRANT_LABEL),
+            signal("tunnel", 90.0, CONTROLLED_SPAN),
+        ])
+        assert "corroboration_bonus" not in result.overrides_applied
+
+    def test_disjoint_spans_still_earn_the_bonus(self):
+        """B: tunnel on a registry domain reads bytes DGA never saw."""
+        engine, signal = self._engine_and_signal()
+        result = engine.assess([
+            signal("dga", 90.0, REGISTRANT_LABEL),
+            signal("tunnel", 90.0, DELEGATED_SPAN),
+        ])
+        assert "corroboration_bonus" in result.overrides_applied
+
+    def test_a_database_lookup_still_corroborates_a_name_finding(self):
+        """The bonus must not become unreachable - it exists for a reason."""
+        engine, signal = self._engine_and_signal()
+        result = engine.assess([
+            signal("threat_intel", 90.0, ""),
+            signal("tunnel", 90.0, CONTROLLED_SPAN),
+        ])
+        assert "corroboration_bonus" in result.overrides_applied
+
+    def test_provider_payload_loses_only_the_erroneous_bonus(self):
+        """D: end to end, the +8 goes and nothing else moves."""
+        from backend.app.core.pipeline import get_pipeline
+
+        payload = "aGVsbG93b3JsZGRhdGFleGZpbA.dGhpc2lzZGF0YQ"
+        result = get_pipeline().analyse(payload + ".pages.dev")
+        assert "corroboration_bonus" not in result.assessment.overrides_applied
+        # The tunnel signal itself is untouched by this change: Step 1's
+        # byte-equivalence must survive.
+        tunnel = next(s for s in result.signals if s.name == "tunnel")
+        assert tunnel.score == 76.0
+        assert tunnel.scope_key == CONTROLLED_SPAN
+        assert result.assessment.decision == "BLOCK"

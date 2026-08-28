@@ -46,8 +46,16 @@ class BehavioralResult:
     method: str = "history_heuristic_v1"
     method_type: str = "PROTOTYPE_HEURISTIC"
 
+    client_observations: Optional[Dict[str, Any]] = None
+    """The same rules over the querying client alone, when one is known.
+
+    Attribution, carried alongside the verdict. It is absent rather than empty
+    when no client was recorded, because "we did not record who asked" and
+    "nobody asked" are different statements.
+    """
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             "score": round(self.score, 2),
             "confidence": round(self.confidence, 3),
             "indicators": self.indicators,
@@ -55,6 +63,9 @@ class BehavioralResult:
             "method": self.method,
             "method_type": self.method_type,
         }
+        if self.client_observations is not None:
+            payload["client_observations"] = self.client_observations
+        return payload
 
 
 class BehavioralAnalyzer(ABC):
@@ -96,26 +107,46 @@ class HistoryBehavioralAnalyzer(BehavioralAnalyzer):
 
         return get_event_repository()
 
-    def analyse(
-        self, features: DomainFeatures, config: Optional[RiskConfig] = None
-    ) -> BehavioralResult:
-        cfg = config or get_risk_config()
-        thresholds = cfg.get("behavioral.thresholds", {}) or {}
-        points = cfg.get("behavioral.points", {}) or {}
-        window_minutes = int(cfg.get("behavioral.window_minutes", 60))
+    # -- history access -----------------------------------------------------
 
+    def _history(
+        self,
+        registrable_domain: str,
+        window_minutes: int,
+        client_address: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """One history slice, or None when the store cannot answer."""
         try:
-            history = self.repository.domain_history(
-                features.registrable_domain, window_minutes=window_minutes
+            return self.repository.domain_history(
+                registrable_domain,
+                window_minutes=window_minutes,
+                client_address=client_address,
             )
         except Exception:
             # History is an enhancement, never a dependency. If the store is
             # unavailable the analyser abstains rather than failing the query.
-            return BehavioralResult(
-                score=0.0,
-                confidence=0.0,
-                observations={"history_available": False},
-            )
+            return None
+
+    # -- scoring ------------------------------------------------------------
+
+    def score_history(
+        self,
+        history: Dict[str, Any],
+        config: Optional[RiskConfig] = None,
+        window_minutes: Optional[int] = None,
+    ) -> BehavioralResult:
+        """Apply the behavioural rules to one history slice.
+
+        The rules neither know nor care which slice they were handed - domain
+        wide, or narrowed to a single client. That is what stops attribution
+        drifting away from scoring: there is one implementation of every
+        threshold, and both callers go through it.
+        """
+        cfg = config or get_risk_config()
+        thresholds = cfg.get("behavioral.thresholds", {}) or {}
+        points = cfg.get("behavioral.points", {}) or {}
+        if window_minutes is None:
+            window_minutes = int(cfg.get("behavioral.window_minutes", 60))
 
         seen = history["total_queries"]
         observations: Dict[str, Any] = {
@@ -183,6 +214,99 @@ class HistoryBehavioralAnalyzer(BehavioralAnalyzer):
             indicators=indicators,
             observations=observations,
         )
+
+    # -- entry points -------------------------------------------------------
+
+    def analyse(
+        self,
+        features: DomainFeatures,
+        config: Optional[RiskConfig] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> BehavioralResult:
+        """Score the registrable domain from DOMAIN-WIDE history.
+
+        This is the result the risk engine consumes, and it is deliberately
+        not narrowed to the querying client. Splitting the evidence per device
+        would let a domain fanned out across five machines sit under a
+        threshold that one machine alone would have tripped.
+
+        When the caller knows which client asked - the DNS gateway does, the
+        HTTP API does not - a client-scoped view is attached alongside it for
+        attribution. That view never touches the score.
+        """
+        cfg = config or get_risk_config()
+        window_minutes = int(cfg.get("behavioral.window_minutes", 60))
+
+        client_address = (context or {}).get("client_address")
+        client_history = None
+
+        try:
+            if client_address:
+                # Both slices from one scan. Asking separately doubled the
+                # per-query database cost for data that only ever decorates.
+                history, client_history = self.repository.domain_history_pair(
+                    features.registrable_domain, client_address, window_minutes
+                )
+            else:
+                history = self.repository.domain_history(
+                    features.registrable_domain, window_minutes=window_minutes
+                )
+        except Exception:
+            # History is an enhancement, never a dependency. If the store is
+            # unavailable the analyser abstains rather than failing the query.
+            return BehavioralResult(
+                score=0.0,
+                confidence=0.0,
+                observations={"history_available": False},
+            )
+
+        result = self.score_history(history, cfg, window_minutes)
+
+        if client_history is not None:
+            attribution = self.score_history(client_history, cfg, window_minutes)
+            attribution.observations["client_address"] = client_address
+            result.client_observations = {
+                "client_address": client_address,
+                "score": round(attribution.score, 2),
+                "confidence": round(attribution.confidence, 3),
+                "indicators": attribution.indicators,
+                "observations": attribution.observations,
+                "used_in_scoring": False,
+            }
+        return result
+
+    def analyse_client(
+        self,
+        registrable_domain: str,
+        client_address: str,
+        config: Optional[RiskConfig] = None,
+    ) -> BehavioralResult:
+        """The same rules, over one client's slice of the same history.
+
+        Attribution only. An address that was never recorded - withheld by the
+        privacy policy, or belonging to an analysis request that never had a
+        client - is absent rather than quiet, so the query below does not match
+        it and it is never folded into another client's behaviour.
+        """
+        cfg = config or get_risk_config()
+        window_minutes = int(cfg.get("behavioral.window_minutes", 60))
+
+        history = self._history(
+            registrable_domain, window_minutes, client_address=client_address
+        )
+        if history is None:
+            return BehavioralResult(
+                score=0.0,
+                confidence=0.0,
+                observations={
+                    "history_available": False,
+                    "client_address": client_address,
+                },
+            )
+
+        result = self.score_history(history, cfg, window_minutes)
+        result.observations["client_address"] = client_address
+        return result
 
     def info(self) -> Dict[str, Any]:
         return {

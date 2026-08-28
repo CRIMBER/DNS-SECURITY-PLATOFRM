@@ -138,7 +138,14 @@ class DNSRequestHandler:
         # channels), and signals that do not care simply ignore it.
         try:
             result = self.pipeline.analyse(
-                qname, {"query_type": qtype, "query_class": qclass}
+                qname,
+                {
+                    "query_type": qtype,
+                    "query_class": qclass,
+                    # Already filtered by the privacy policy above, so what is
+                    # forwarded is what was recorded - never the raw address.
+                    "client_address": context.client_address,
+                },
             )
         except DomainValidationError as exc:
             # A syntactically valid DNS name our normaliser rejects. Refuse

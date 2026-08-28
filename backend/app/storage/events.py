@@ -8,10 +8,16 @@ frontend.
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from ..config import get_risk_config
 from ..core.pipeline import AnalysisResult
 from .db import connect, ensure_initialised
+
+ATTRIBUTION_NOTE = (
+    "Attribution only. Risk scoring uses domain-wide history, so this "
+    "never changes a verdict."
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type checking
     from ..dns_gateway.models import DNSContext
@@ -353,26 +359,56 @@ class EventRepository:
         }
 
 
-    def domain_history(self, registrable_domain: str, window_minutes: int = 60):
+    _HISTORY_COLUMNS = (
+        "COUNT(*) AS total, "
+        "COUNT(DISTINCT domain) AS distinct_names, "
+        "COALESCE(MAX(risk_score), 0) AS max_risk, "
+        "COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked, "
+        "COALESCE(SUM(CASE WHEN response_code = 'NXDOMAIN' AND blocked = 0 "
+        "               THEN 1 ELSE 0 END), 0) AS nxdomain "
+    )
+
+    @staticmethod
+    def _window_start(window_minutes: int) -> str:
+        return (
+            datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def domain_history(
+        self,
+        registrable_domain: str,
+        window_minutes: int = 60,
+        client_address: Optional[str] = None,
+    ):
         """Recent activity for one registrable domain.
 
         Feeds the behavioural analyser. Deliberately narrow and indexed - this
         runs on the DNS hot path, once per query.
+
+        With no ``client_address`` this counts every event for the domain,
+        which is what the risk engine reads: fusion stays domain-wide so that
+        evidence spread across several devices is not split below a threshold
+        one device alone would have tripped.
+
+        With a ``client_address`` the same counts are narrowed to one client,
+        for attribution only. Two exclusions matter there and are deliberate:
+        analysis events are dropped because an API request has no client to
+        attribute it to, and rows whose address was withheld by the privacy
+        policy simply do not match - an unrecorded address is absent, not a
+        client with no behaviour, and must never be folded into another one.
         """
-        since = (
-            datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        since = self._window_start(window_minutes)
+
+        where = "registrable_domain = ? AND ts_utc >= ?"
+        params = [registrable_domain, since]
+        if client_address is not None:
+            where += " AND client_address = ? AND event_type = 'dns'"
+            params.append(client_address)
 
         with connect(self.path) as connection:
             row = connection.execute(
-                "SELECT COUNT(*) AS total, "
-                "COUNT(DISTINCT domain) AS distinct_names, "
-                "COALESCE(MAX(risk_score), 0) AS max_risk, "
-                "COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked, "
-                "COALESCE(SUM(CASE WHEN response_code = 'NXDOMAIN' AND blocked = 0 "
-                "               THEN 1 ELSE 0 END), 0) AS nxdomain "
-                "FROM events WHERE registrable_domain = ? AND ts_utc >= ?",
-                (registrable_domain, since),
+                "SELECT " + self._HISTORY_COLUMNS + "FROM events WHERE " + where,
+                tuple(params),
             ).fetchone()
 
         return {
@@ -381,6 +417,96 @@ class EventRepository:
             "max_risk_score": row["max_risk"] or 0,
             "blocked_count": row["blocked"] or 0,
             "nxdomain_count": row["nxdomain"] or 0,
+        }
+
+    def domain_history_pair(
+        self,
+        registrable_domain: str,
+        client_address: str,
+        window_minutes: int = 60,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Domain-wide and client-scoped slices of one domain, in one pass.
+
+        The gateway needs both on the hot path: the first decides the score,
+        the second says which device produced the behaviour. Asking twice cost
+        two connections and two scans per DNS query - measurably more than the
+        analysis it was supporting - so the client half is computed here as
+        conditional aggregation over the same rows.
+
+        The client half applies exactly the filters ``domain_history`` applies
+        for a client: DNS events only, and only rows whose address was actually
+        recorded.
+        """
+        since = self._window_start(window_minutes)
+        scoped = "client_address = ? AND event_type = 'dns'"
+
+        with connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT "
+                + self._HISTORY_COLUMNS
+                + ", SUM(CASE WHEN " + scoped + " THEN 1 ELSE 0 END) AS c_total, "
+                "COUNT(DISTINCT CASE WHEN " + scoped + " THEN domain END) "
+                "    AS c_distinct_names, "
+                "COALESCE(MAX(CASE WHEN " + scoped + " THEN risk_score END), 0) "
+                "    AS c_max_risk, "
+                "COALESCE(SUM(CASE WHEN " + scoped + " AND blocked = 1 "
+                "             THEN 1 ELSE 0 END), 0) AS c_blocked, "
+                "COALESCE(SUM(CASE WHEN " + scoped + " AND response_code = 'NXDOMAIN' "
+                "             AND blocked = 0 THEN 1 ELSE 0 END), 0) AS c_nxdomain "
+                "FROM events WHERE registrable_domain = ? AND ts_utc >= ?",
+                (
+                    client_address,
+                    client_address,
+                    client_address,
+                    client_address,
+                    client_address,
+                    registrable_domain,
+                    since,
+                ),
+            ).fetchone()
+
+        domain_wide = {
+            "total_queries": row["total"] or 0,
+            "distinct_names": row["distinct_names"] or 0,
+            "max_risk_score": row["max_risk"] or 0,
+            "blocked_count": row["blocked"] or 0,
+            "nxdomain_count": row["nxdomain"] or 0,
+        }
+        client_scoped = {
+            "total_queries": row["c_total"] or 0,
+            "distinct_names": row["c_distinct_names"] or 0,
+            "max_risk_score": row["c_max_risk"] or 0,
+            "blocked_count": row["c_blocked"] or 0,
+            "nxdomain_count": row["c_nxdomain"] or 0,
+        }
+        return domain_wide, client_scoped
+
+    def client_domain_histories(
+        self, client_address: str, window_minutes: int = 60
+    ) -> Dict[str, Dict[str, Any]]:
+        """Every domain this client touched, with its history slice, in one query.
+
+        One statement rather than one per domain, because the dashboard asks
+        for this per source row.
+        """
+        since = self._window_start(window_minutes)
+        with connect(self.path) as connection:
+            rows = connection.execute(
+                "SELECT registrable_domain, " + self._HISTORY_COLUMNS
+                + "FROM events WHERE client_address = ? AND event_type = 'dns' "
+                "AND ts_utc >= ? GROUP BY registrable_domain",
+                (client_address, since),
+            ).fetchall()
+
+        return {
+            row["registrable_domain"]: {
+                "total_queries": row["total"] or 0,
+                "distinct_names": row["distinct_names"] or 0,
+                "max_risk_score": row["max_risk"] or 0,
+                "blocked_count": row["blocked"] or 0,
+                "nxdomain_count": row["nxdomain"] or 0,
+            }
+            for row in rows
         }
 
     # -- DNS aggregations ---------------------------------------------------
@@ -515,6 +641,86 @@ class EventRepository:
         }
 
 
+    def client_behaviour(
+        self, client_address: str, window_minutes: int = 60
+    ) -> Dict[str, Any]:
+        """Behavioural attribution for one client. Display only.
+
+        Runs the SAME rules the risk engine uses, over this client's slice of
+        history, once per registrable domain the client touched, and reports
+        the strongest finding. Nothing here reaches fusion: the score that
+        decides ALLOW/BLOCK is still computed from domain-wide history, and
+        ``used_in_scoring`` says so in the payload rather than leaving a reader
+        to assume either way.
+
+        The import is local because the dependency runs the other way round in
+        every other file - detection reads storage - and a module-level import
+        here would close the loop.
+        """
+        from ..detection.behavioral import HistoryBehavioralAnalyzer
+
+        # Bound to this repository rather than the process-wide singleton,
+        # which resolves to the globally configured store and would answer
+        # about a different database than the one being asked.
+        analyzer = HistoryBehavioralAnalyzer(repository=self)
+        config = get_risk_config()
+        min_queries = int(
+            config.get("behavioral.thresholds.min_queries_for_evidence", 3)
+        )
+
+        histories = self.client_domain_histories(client_address, window_minutes)
+
+        strongest = None
+        strongest_domain = None
+        for domain, history in histories.items():
+            result = analyzer.score_history(history, config, window_minutes)
+            if strongest is None or result.score > strongest.score:
+                strongest, strongest_domain = result, domain
+
+        if strongest is None:
+            return {
+                "verdict": "INSUFFICIENT_HISTORY",
+                "score": 0.0,
+                "confidence": 0.0,
+                "indicators": [],
+                "query_burst": False,
+                "subdomain_fanout": False,
+                "high_nxdomain_ratio": False,
+                "repeatedly_blocked": False,
+                "registrable_domain": None,
+                "window_minutes": window_minutes,
+                "used_in_scoring": False,
+                "note": ATTRIBUTION_NOTE,
+            }
+
+        observed = strongest.observations
+        fired = set(strongest.indicators)
+        if strongest.indicators:
+            verdict = "ANOMALOUS"
+        elif observed.get("queries_in_window", 0) >= min_queries:
+            verdict = "NORMAL"
+        else:
+            verdict = "INSUFFICIENT_HISTORY"
+
+        return {
+            "verdict": verdict,
+            "score": round(strongest.score, 2),
+            "confidence": round(strongest.confidence, 3),
+            "indicators": strongest.indicators,
+            "query_burst": "query_burst" in fired,
+            "subdomain_fanout": "subdomain_fanout" in fired,
+            "high_nxdomain_ratio": "high_nxdomain_ratio" in fired,
+            "repeatedly_blocked": "repeatedly_blocked" in fired,
+            "registrable_domain": strongest_domain,
+            "window_minutes": window_minutes,
+            "queries_in_window": observed.get("queries_in_window", 0),
+            "distinct_subdomains": observed.get("distinct_subdomains", 0),
+            "nxdomain_ratio": observed.get("nxdomain_ratio", 0.0),
+            "blocked_before": observed.get("blocked_before", 0),
+            "used_in_scoring": False,
+            "note": ATTRIBUTION_NOTE,
+        }
+
     def source_ip_stats(self, limit: int = 50) -> Dict[str, Any]:
         """Query volume and block rate per client address.
 
@@ -558,6 +764,7 @@ class EventRepository:
                 "threat_rate": round(100.0 * (row["blocked"] or 0) / queries, 1)
                 if queries else 0.0,
                 "last_seen": row["last_seen"],
+                "behaviour": self.client_behaviour(row["ip"]),
             })
 
         return {

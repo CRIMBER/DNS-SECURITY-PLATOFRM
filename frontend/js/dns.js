@@ -295,6 +295,49 @@
      endpoint reports that setting, and it is shown, because "one row for
      127.0.0.1" means the policy is loopback_only - not that one host made
      every query. */
+  /* Behavioural attribution for one source row.
+
+     The same rules the risk engine runs, narrowed to this client. It is shown
+     next to the counts because "which device" is the question the counts
+     cannot answer - but it is labelled as attribution, because it deliberately
+     played no part in the verdicts in the Blocked column. */
+  var BEHAVIOUR_LABELS = {
+    query_burst: "burst",
+    subdomain_fanout: "fan-out",
+    high_nxdomain_ratio: "NXDOMAIN",
+    repeatedly_blocked: "re-blocked"
+  };
+
+  function behaviourCell(b) {
+    var td = el("td");
+    if (!b || b.verdict === "INSUFFICIENT_HISTORY") {
+      var none = el("span", null, "not enough history");
+      none.style.color = "var(--text-dim)";
+      td.appendChild(none);
+      return td;
+    }
+    if (b.verdict === "NORMAL") {
+      var normal = el("span", null, "no anomalies");
+      normal.style.color = "var(--text-dim)";
+      td.appendChild(normal);
+      return td;
+    }
+
+    var badge = el("span", "badge badge-MONITOR", "ANOMALOUS");
+    td.appendChild(badge);
+
+    var named = (b.indicators || []).map(function (i) {
+      return BEHAVIOUR_LABELS[i] || i;
+    });
+    if (named.length) {
+      var detail = el("div", "note", named.join(", ")
+        + (b.registrable_domain ? " on " + b.registrable_domain : ""));
+      detail.style.marginTop = "2px";
+      td.appendChild(detail);
+    }
+    return td;
+  }
+
   function renderSources(data) {
     var host = $("sourceIpTable");
     host.innerHTML = "";
@@ -312,7 +355,7 @@
     var table = el("table");
     var head = el("tr");
     ["Source IP", "Queries", "Unique Domains", "Blocked", "Monitored",
-     "Threat Rate", "Max Risk", "Last Seen"]
+     "Threat Rate", "Max Risk", "Behaviour", "Last Seen"]
       .forEach(function (h) { head.appendChild(el("th", null, h)); });
     table.appendChild(head);
     rows.forEach(function (s) {
@@ -329,6 +372,7 @@
       var risk = el("td", "num", s.max_risk_score);
       risk.style.color = U.scoreColor(s.max_risk_score);
       tr.appendChild(risk);
+      tr.appendChild(behaviourCell(s.behaviour));
       tr.appendChild(el("td", null, U.shortTime(s.last_seen)));
       table.appendChild(tr);
     });
@@ -340,6 +384,8 @@
       note += " " + data.queries_without_client_address + " queries have no "
         + "recorded address and are not attributed to any row.";
     }
+    note += " Behaviour is attribution only: it identifies which device "
+      + "produced a pattern and takes no part in the risk score.";
     host.appendChild(el("div", "note", note));
   }
 

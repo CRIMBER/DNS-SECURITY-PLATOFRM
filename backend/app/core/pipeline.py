@@ -113,7 +113,9 @@ class AnalysisPipeline:
         timings["tunnel"] = (time.perf_counter() - started) * 1000.0
 
         started = time.perf_counter()
-        behavioral_result = get_behavioral_analyzer().analyse(features, self.config)
+        behavioral_result = get_behavioral_analyzer().analyse(
+            features, self.config, context
+        )
         signals.append(behavioral_to_signal(behavioral_result, self.config))
         timings["behavioral"] = (time.perf_counter() - started) * 1000.0
 

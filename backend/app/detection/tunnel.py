@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ..config import RiskConfig, get_risk_config
-from ..core.classification import DELEGATED_SPAN, NameKind
+from ..core.classification import CONTROLLED_SPAN, DELEGATED_SPAN, NameKind
 from ..core.features import DomainFeatures, shannon_entropy
 from ..core.signals import RiskFactor, Severity, Signal, clamp
 
@@ -58,6 +58,14 @@ class TunnelResult:
     measurements: Dict[str, Any] = field(default_factory=dict)
     method: str = "heuristic_tunnel_v1"
     method_type: str = "PROTOTYPE_HEURISTIC"
+
+    scope_key: str = DELEGATED_SPAN
+    """Which named span was actually measured.
+
+    It is not always the same one, so the signal cannot declare a fixed
+    value: evidence independence is decided by comparing these, and a signal
+    that names a span it did not read corrupts that comparison.
+    """
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -126,20 +134,29 @@ class HeuristicTunnelDetector(TunnelDetector):
         points = cfg.get("tunnel.points", {}) or {}
         context = context or {}
 
-        # SCOPE: the exfiltration channel is DELEGATED_SPAN - everything the
-        # zone operator can vary from one query to the next.
+        # SCOPE: the payload span is the run of labels an attacker fills with
+        # data. Which span that is depends on who chose the label above it.
         #
-        # For a name with a zone owner this is the same span `features.subdomain`
-        # already gave, and reading it here changes no score: an attacker who
-        # owns evilsite.pages.dev and one who owns victimzone.test both get 86
-        # for the same payload, because both own a zone and vary the labels
-        # below it. Naming the span explicitly is the point - it stops the
-        # next detector from re-deriving "the subdomain" for itself and getting
-        # a different answer.
+        # Under a registry suffix it is DELEGATED_SPAN - everything below the
+        # domain someone registered. Under a provider suffix it is not, and an
+        # earlier comment here claimed otherwise. pages.dev is a two-label
+        # public suffix, so the payload's own last label was being counted as
+        # the "registrable" one and dropped from the span. The same bytes read
+        # 41 characters over two labels under tunnel.test and 26 over one under
+        # pages.dev: 76 against 26 for one attacker's payload, decided by where
+        # a suffix boundary happens to fall.
         #
-        # What DOES change is the guard below: an address literal has no labels
-        # to carry a payload, and a reverse-DNS name's labels encode an address
-        # rather than data.
+        # Nobody registered a brand inside a provider namespace, so the
+        # allocated label is not a registrant's name - it is another label the
+        # attacker filled. CONTROLLED_SPAN folds it back in.
+        #
+        # Only when something varies BELOW it, though. A provider host with an
+        # empty delegated span is a static hostname, and a static hostname is
+        # not a channel however it happens to be spelled: nothing about it
+        # changes from one query to the next. Reading d111111abcdef8 as a
+        # payload measures how a CDN spells a distribution id - it is pure hex,
+        # so it trips the encoded-payload rule - which is the same mistake as
+        # scoring the octets of an IP literal for character transitions.
         classification = features.classification
         if classification is not None and classification.kind in _NO_PAYLOAD_SPAN:
             return TunnelResult(
@@ -152,11 +169,18 @@ class HeuristicTunnelDetector(TunnelDetector):
                     "query_type": (context or {}).get("query_type"),
                 },
             )
-        subdomain = (
-            classification.scope(DELEGATED_SPAN)
-            if classification is not None
-            else features.subdomain
-        ) or ""
+
+        # No fallback to features.subdomain. A detector that re-derives its own
+        # span is exactly what put two answers in the codebase for one
+        # question; without a declared scope there is nothing to read.
+        scope_key = DELEGATED_SPAN
+        subdomain = ""
+        if classification is not None:
+            subdomain = classification.scope(DELEGATED_SPAN)
+            if subdomain and not classification.scope_is_registrant_chosen:
+                scope_key = CONTROLLED_SPAN
+                subdomain = classification.scope(CONTROLLED_SPAN)
+
         labels = [part for part in subdomain.split(".") if part]
 
         measurements: Dict[str, Any] = {
@@ -176,6 +200,7 @@ class HeuristicTunnelDetector(TunnelDetector):
                 confidence=0.0,
                 indicators=[],
                 measurements=measurements,
+                scope_key=scope_key,
             )
 
         total = 0.0
@@ -237,6 +262,7 @@ class HeuristicTunnelDetector(TunnelDetector):
             confidence=confidence,
             indicators=indicators,
             measurements=measurements,
+            scope_key=scope_key,
         )
 
     def info(self) -> Dict[str, Any]:
@@ -299,7 +325,9 @@ def tunnel_to_signal(result: TunnelResult, config) -> Signal:
         )
 
     return Signal(
-        scope_key=DELEGATED_SPAN,
+        # The span this result was actually measured on - see
+        # TunnelResult.scope_key and Signal.scope_key.
+        scope_key=result.scope_key,
         name=SIGNAL_NAME,
         score=result.score,
         confidence=result.confidence,

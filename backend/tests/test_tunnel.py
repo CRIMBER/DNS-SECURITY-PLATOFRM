@@ -149,3 +149,79 @@ class TestAllowlistInteraction:
         result = get_pipeline().analyse("mail.google.com")
         assert "allowlist_set_aside" not in result.assessment.overrides_applied
         assert result.assessment.score <= 25
+
+
+class TestPayloadEquivalenceAcrossSuffixes:
+    """Identical payload bytes must be read identically, whatever the suffix.
+
+    pages.dev is a two-label public suffix. The registrable domain under it is
+    therefore payload-label-plus-suffix, so DELEGATED_SPAN - everything below
+    the registrable domain - silently dropped the payload's last label. One
+    attacker's bytes read 41 characters over two labels under tunnel.test and
+    26 over one under pages.dev, scoring 76 against 26, decided entirely by
+    where a suffix boundary happened to fall.
+
+    Nobody registers a brand inside a provider namespace, so that label is not
+    a registrant's name; it is another label the attacker filled.
+    """
+
+    PAYLOAD = "aGVsbG93b3JsZGRhdGFleGZpbA.dGhpc2lzZGF0YQ"
+
+    REGISTRY_SUFFIXES = ["tunnel.test", "example.com"]
+    PROVIDER_SUFFIXES = ["pages.dev", "cloudfront.net", "github.io",
+                         "herokuapp.com"]
+
+    def _analysis(self, detector, suffix):
+        return detector.analyse(
+            extract_features(normalize(self.PAYLOAD + "." + suffix)))
+
+    def test_same_bytes_score_the_same_under_every_suffix(self, detector):
+        scores = {suffix: self._analysis(detector, suffix).score
+                  for suffix in self.REGISTRY_SUFFIXES + self.PROVIDER_SUFFIXES}
+        assert len(set(scores.values())) == 1, (
+            "identical payload bytes scored differently by suffix: " + str(scores))
+        assert set(scores.values()) != {0.0}, "the payload must still be detected"
+
+    def test_the_whole_payload_is_measured_under_a_provider_suffix(self, detector):
+        """Not just the measurements that happen to add up to the same score."""
+        reference = self._analysis(detector, "tunnel.test").measurements
+        for suffix in self.PROVIDER_SUFFIXES:
+            found = self._analysis(detector, suffix).measurements
+            for key in ("subdomain_length", "subdomain_label_count",
+                        "longest_label", "subdomain_entropy"):
+                assert found[key] == reference[key], (suffix, key)
+
+    def test_the_signal_declares_the_span_it_actually_read(self, detector):
+        """Evidence independence compares these; a wrong one corrupts it."""
+        from backend.app.core.classification import (
+            CONTROLLED_SPAN, DELEGATED_SPAN,
+        )
+
+        registry = tunnel_to_signal(
+            self._analysis(detector, "tunnel.test"), get_risk_config())
+        provider = tunnel_to_signal(
+            self._analysis(detector, "pages.dev"), get_risk_config())
+        assert registry.scope_key == DELEGATED_SPAN
+        assert provider.scope_key == CONTROLLED_SPAN
+
+    @pytest.mark.parametrize("domain", [
+        "d111111abcdef8.cloudfront.net",   # pure hex - trips encoded_payload
+        "d1a2b3c4e5f6g7.cloudfront.net",
+        "myproject.github.io",
+        "myapp.herokuapp.com",
+        "assets.myproject.github.io",
+        "s3.dualstack.us-east-1.amazonaws.com",
+    ])
+    def test_legitimate_provider_hosts_are_still_not_flagged(self, detector, domain):
+        """A static hostname is not a channel, however it is spelled.
+
+        A provider host with nothing below it varies nothing from one query to
+        the next. Folding its allocated label into the payload span would read
+        d111111abcdef8 - a real CloudFront distribution id, and pure hex - as
+        an encoded payload, which measures how a CDN spells an id rather than
+        anything an attacker did.
+        """
+        result = detector.analyse(extract_features(normalize(domain)))
+        assert result.score == 0.0, (domain, result.indicators)
+        assert result.confidence == 0.0
+        assert not result.indicators

@@ -31,6 +31,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 LOGS_JS = os.path.join(ROOT, "frontend", "js", "logs.js")
 APP_JS = os.path.join(ROOT, "frontend", "js", "app.js")
 INDEX_HTML = os.path.join(ROOT, "frontend", "index.html")
+CSS = os.path.join(ROOT, "frontend", "css", "styles.css")
 
 
 def _strip_comments(source):
@@ -70,6 +71,11 @@ def app_js():
 @pytest.fixture(scope="module")
 def index_html():
     return read(INDEX_HTML)
+
+
+@pytest.fixture(scope="module")
+def css():
+    return read(CSS)
 
 
 # -- 1. the log renders from the existing event store ------------------------
@@ -243,3 +249,90 @@ class TestNoCompetingLogStore:
         second = client.post("/api/analyze", json={"domain": "kq3v9z7jx1p8w.info"}).json()
         assert first["risk_score"] == second["risk_score"]
         assert first["decision"] == second["decision"]
+
+
+# -- 7. Phase 5B: the product surface ----------------------------------------
+
+
+class TestActivityFeedPresentation:
+    """The log is a product activity table, not a console dump."""
+
+    def test_table_has_the_named_columns(self, logs_js):
+        for column in ("Time", "Domain", "Action", "Risk", "Decision", "Source"):
+            assert '"%s"' % column in logs_js
+
+    def test_decision_is_shown_as_a_badge(self, logs_js):
+        assert 'badge badge-" + event.decision' in logs_js
+
+    def test_source_falls_back_to_a_surface_not_a_fake_address(self, logs_js):
+        """No client address means "which surface", never an invented client."""
+        block = logs_js[logs_js.index("function sourceFor"):]
+        block = block[: block.index("\n  }")]
+        assert "event.client_address" in block
+        assert '"DNS gateway"' in block and '"Dashboard"' in block
+
+    def test_domain_cell_is_not_uppercased(self, css):
+        """A regression that shipped once: the domain cell is a <button>, and
+        the global button rule was uppercasing every domain name."""
+        import re
+        rule = css[css.index(".log-toggle {"):]
+        rule = rule[: rule.index("}")]
+        applied = re.search(r"text-transform:\s*([a-z-]+)", rule)
+        assert applied is None or applied.group(1) == "none", (
+            "the domain cell must not transform the case of a domain name"
+        )
+        button_rule = css[css.index("\nbutton {"):]
+        button_rule = button_rule[: button_rule.index("}")]
+        assert "uppercase" not in button_rule, (
+            "the domain cell is a <button>; uppercasing it uppercases domains"
+        )
+
+
+class TestEmptyStateIsNotAnError:
+    def test_empty_state_explains_the_disabled_gateway(self, logs_js):
+        block = logs_js[logs_js.index("function emptyState"):]
+        block = block[: block.index("\n  /* -- rendering")]
+        assert 'gateway.status === "disabled"' in block
+        assert "Connect the gateway" in block
+
+    def test_empty_state_uses_no_failure_language(self, logs_js):
+        block = logs_js[logs_js.index("function emptyState"):]
+        block = block[: block.index("\n  /* -- rendering")]
+        for word in ("error", "Error", "failed", "Failed", "problem", "wrong"):
+            assert word not in block, "an empty log is a normal state"
+
+
+class TestStatusPaletteStaysValidated:
+    """The three verdict colours must keep passing the project validator.
+
+    Re-stepping them for the light ground was the point of Phase 5B; this
+    fails if someone later picks a red that a red-green viewer cannot tell
+    from the amber.
+    """
+
+    def test_status_colours_pass_the_palette_validator(self, css):
+        import re
+        import subprocess
+        import sys
+
+        wanted = {}
+        for name in ("safe", "warning", "critical"):
+            m = re.search(r"--%s:\s*(#[0-9a-fA-F]{6});" % name, css)
+            assert m, "--%s missing from the token block" % name
+            wanted[name] = m.group(1)
+
+        script = os.path.join(ROOT, "backend", "scripts", "validate_palette.py")
+        result = subprocess.run(
+            [sys.executable, script,
+             ",".join([wanted["safe"], wanted["warning"], wanted["critical"]]),
+             "--mode", "light", "--surface", "#ffffff"],
+            capture_output=True, text=True)
+        assert "RESULT: PASS" in result.stdout, result.stdout
+
+    def test_surfaces_are_light(self, css):
+        """A dark --bg would make every light-ground contrast claim false."""
+        import re
+        m = re.search(r"--bg:\s*(#[0-9a-fA-F]{6});", css)
+        assert m
+        r, g, b = (int(m.group(1)[i:i + 2], 16) for i in (1, 3, 5))
+        assert (r + g + b) / 3 > 200, "the page ground is meant to be light"

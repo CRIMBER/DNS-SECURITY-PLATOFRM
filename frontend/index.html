@@ -300,7 +300,7 @@
     <section class="view hidden" id="view-logs">
       <div class="view-head">
         <h2>Activity Log</h2>
-        <p>Security events as they were recorded, newest first</p>
+        <p>Everything the platform has analysed, newest first</p>
       </div>
 
       <div class="panel">
@@ -313,6 +313,7 @@
             <button class="ghost" id="logClearSearch">Clear</button>
           </div>
         </div>
+        <div class="log-notices" id="logNotices"></div>
         <div class="note" id="logCount"></div>
         <div class="loglist" id="logList"></div>
       </div>
@@ -320,8 +321,7 @@
       <details class="panel diagnostics">
         <summary>
           <span class="diag-title">Diagnostics</span>
-          <span class="diag-sub">Build and model detail &mdash; for engineers,
-            not part of the security picture</span>
+          <span class="diag-sub">Build and model detail for operators</span>
         </summary>
         <div id="logDiagnostics"></div>
       </details>

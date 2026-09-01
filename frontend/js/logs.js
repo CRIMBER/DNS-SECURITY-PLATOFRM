@@ -62,33 +62,27 @@
     return "risk threshold exceeded";
   }
 
-  function messageFor(event, severity) {
-    if (severity === "ERROR") {
-      return "Upstream resolution failed — no answer was invented";
-    }
-    if (severity === "BLOCKED") {
-      return "Risk " + event.risk_score + " — blocked, " + reasonFor(event);
-    }
-    if (severity === "WARNING") {
-      return "Risk " + event.risk_score + " — flagged for monitoring, "
-        + reasonFor(event);
-    }
+  function actionFor(event, severity) {
+    if (severity === "ERROR") return "Upstream lookup failed";
+    if (severity === "BLOCKED") return "Blocked — " + reasonFor(event);
+    if (severity === "WARNING") return "Flagged — " + reasonFor(event);
     if (event.cache_hit) return "Allowed — served from cache";
     if (event.upstream_used) return "Allowed — resolved upstream";
     return "Allowed — analysis completed";
   }
 
-  function categoryFor(event) {
-    return event.event_type === "dns" ? "DNS query" : "Domain analysis";
+  /* Where the entry came from. A client address is used only when the event
+     carries one; otherwise the honest answer is which surface produced it. */
+  function sourceFor(event) {
+    if (event.client_address) return event.client_address;
+    return event.event_type === "dns" ? "DNS gateway" : "Dashboard";
   }
 
   /* -- expandable detail ------------------------------------------------- */
 
   function detailRows(event) {
     var rows = [
-      ["Decision", event.decision],
       ["Classification", event.classification],
-      ["Risk score", event.risk_score],
       ["Threat intelligence", event.threat_intelligence_verdict]
     ];
     if (event.matched_indicator) rows.push(["Matched indicator", event.matched_indicator]);
@@ -98,8 +92,8 @@
     if (event.event_type === "dns") {
       rows.push(["Query type", event.query_type]);
       rows.push(["Response", event.response_code]);
-      rows.push(["Upstream contacted", event.upstream_used ? "yes" : "no"]);
-      rows.push(["Served from cache", event.cache_hit ? "yes" : "no"]);
+      rows.push(["Upstream contacted", event.upstream_used ? "Yes" : "No"]);
+      rows.push(["Served from cache", event.cache_hit ? "Yes" : "No"]);
       // Only when the privacy policy actually recorded one.
       if (event.client_address) rows.push(["Client", event.client_address]);
     }
@@ -110,52 +104,85 @@
     return rows;
   }
 
-  function entry(event) {
-    var severity = severityOf(event);
-    var row = el("details", "logrow " + LEVEL_CLASS[severity]);
-    row.setAttribute("data-level", severity);
-    row.setAttribute("data-domain", event.domain || "");
-
-    var head = el("summary", "logrow-head");
-    head.appendChild(el("span", "logrow-time", "[" + shortTime(event.timestamp) + "]"));
-    head.appendChild(el("span", "logrow-sev", severity));
-
-    var body = el("span", "logrow-body");
-    body.appendChild(el("span", "logrow-subject", event.domain || categoryFor(event)));
-    body.appendChild(el("span", "logrow-msg", messageFor(event, severity)));
-    head.appendChild(body);
-    head.appendChild(el("span", "logrow-cat", categoryFor(event)));
-    row.appendChild(head);
-
-    var detail = el("div", "logrow-detail");
-    var table = el("table", "kv");
+  function detailCell(event) {
+    var box = el("div", "log-detail");
+    var grid = el("div", "log-detail-grid");
     detailRows(event).forEach(function (pair) {
       if (pair[1] === null || pair[1] === undefined || pair[1] === "") return;
-      var tr = el("tr");
-      tr.appendChild(el("th", null, pair[0]));
-      tr.appendChild(el("td", "mono", String(pair[1])));
-      table.appendChild(tr);
+      var item = el("div", "log-detail-item");
+      item.appendChild(el("div", "log-detail-k", pair[0]));
+      item.appendChild(el("div", "log-detail-v", String(pair[1])));
+      grid.appendChild(item);
     });
-    detail.appendChild(table);
+    box.appendChild(grid);
 
     var factors = event.top_factors || [];
     if (factors.length) {
-      detail.appendChild(el("div", "logrow-detail-h", "Contributing evidence"));
-      var list = el("ul", "logrow-factors");
+      box.appendChild(el("div", "log-detail-h", "Contributing evidence"));
+      var list = el("ul", "log-factors");
       factors.forEach(function (f) {
-        list.appendChild(el("li", null, f.label + " (+" + f.contribution + ")"));
+        var li = el("li");
+        li.appendChild(el("span", null, f.label));
+        li.appendChild(el("span", "log-factor-n", "+" + f.contribution));
+        list.appendChild(li);
       });
-      detail.appendChild(list);
+      box.appendChild(list);
     }
-    row.appendChild(detail);
-    return row;
+    return box;
+  }
+
+  /* -- table rows -------------------------------------------------------- */
+
+  function eventRows(event, index) {
+    var severity = severityOf(event);
+    var detailId = "logdetail-" + index;
+
+    var tr = el("tr", "logrow " + LEVEL_CLASS[severity]);
+    tr.setAttribute("data-level", severity);
+
+    tr.appendChild(el("td", "log-time", shortTime(event.timestamp)));
+
+    var domain = el("td", "log-domain");
+    var toggle = el("button", "log-toggle", event.domain || "—");
+    toggle.setAttribute("type", "button");
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", detailId);
+    domain.appendChild(toggle);
+    tr.appendChild(domain);
+
+    tr.appendChild(el("td", "log-action", actionFor(event, severity)));
+
+    var risk = el("td", "log-risk", String(event.risk_score));
+    risk.style.color = UI.scoreColor(event.risk_score);
+    tr.appendChild(risk);
+
+    var decision = el("td");
+    decision.appendChild(el("span", "badge badge-" + event.decision, event.decision));
+    tr.appendChild(decision);
+
+    tr.appendChild(el("td", "log-source", sourceFor(event)));
+
+    var detailTr = el("tr", "logrow-detail hidden");
+    detailTr.id = detailId;
+    var cell = el("td");
+    cell.setAttribute("colspan", "6");
+    cell.appendChild(detailCell(event));
+    detailTr.appendChild(cell);
+
+    toggle.addEventListener("click", function () {
+      var open = detailTr.classList.toggle("hidden");
+      toggle.setAttribute("aria-expanded", open ? "false" : "true");
+      tr.classList.toggle("is-open", !open);
+    });
+
+    return [tr, detailTr];
   }
 
   /* -- standing conditions ----------------------------------------------- */
 
   /* Not events: current facts about the service. They carry no timestamp
      because nothing happened at a particular moment - inventing one would be
-     the easy lie here. They are pinned above the timeline instead. */
+     the easy lie here. They sit above the table as notices instead. */
   function conditions(health, dnsStatus) {
     var out = [];
     var gateway = (health.components || {}).dns_gateway || {};
@@ -163,20 +190,20 @@
     if (gateway.status === "disabled") {
       out.push({
         level: "WARNING",
-        subject: "DNS Protection",
-        message: "DNS gateway is not available in this deployment"
+        subject: "DNS protection",
+        message: "DNS protection is not available in this deployment."
       });
     } else if (gateway.status === "error") {
       out.push({
         level: "ERROR",
-        subject: "DNS Protection",
-        message: "DNS gateway could not start and is not filtering traffic"
+        subject: "DNS protection",
+        message: "The DNS gateway could not start, so queries are not being filtered."
       });
     } else if (gateway.status === "ok") {
       out.push({
         level: "INFO",
-        subject: "DNS Protection",
-        message: "DNS gateway active and filtering queries"
+        subject: "DNS protection",
+        message: "The DNS gateway is active and filtering queries."
       });
     }
 
@@ -186,32 +213,28 @@
         level: "WARNING",
         subject: "Upstream resolver",
         message: stats.upstream_failures
-          + " upstream lookup(s) failed since the gateway started"
+          + " upstream lookup(s) have failed since the gateway started."
       });
     }
     if (health.status !== "ok") {
       out.push({
         level: "ERROR",
         subject: "System",
-        message: "One or more components are not reporting healthy"
+        message: "One or more components are not reporting healthy."
       });
     }
     return out;
   }
 
-  function conditionRow(item) {
-    var row = el("div", "logrow logrow-condition " + LEVEL_CLASS[item.level]);
+  function noticeRow(item) {
+    var row = el("div", "log-notice " + LEVEL_CLASS[item.level]);
     row.setAttribute("data-level", item.level);
-    row.setAttribute("data-domain", "");
-    var head = el("div", "logrow-head");
-    head.appendChild(el("span", "logrow-time", "current"));
-    head.appendChild(el("span", "logrow-sev", item.level));
-    var body = el("span", "logrow-body");
-    body.appendChild(el("span", "logrow-subject", item.subject));
-    body.appendChild(el("span", "logrow-msg", item.message));
-    head.appendChild(body);
-    head.appendChild(el("span", "logrow-cat", "System state"));
-    row.appendChild(head);
+    row.appendChild(el("span", "log-notice-dot"));
+    var body = el("div", "log-notice-body");
+    body.appendChild(el("span", "log-notice-subject", item.subject));
+    body.appendChild(el("span", "log-notice-msg", item.message));
+    row.appendChild(body);
+    row.appendChild(el("span", "log-notice-tag", "current"));
     return row;
   }
 
@@ -241,55 +264,99 @@
         + (gateway.reason ? " — " + gateway.reason : "")]
     ];
 
-    var table = el("table", "kv");
+    var grid = el("div", "log-detail-grid");
     rows.forEach(function (pair) {
       if (!pair[1]) return;
-      var tr = el("tr");
-      tr.appendChild(el("th", null, pair[0]));
-      tr.appendChild(el("td", "mono", String(pair[1])));
-      table.appendChild(tr);
+      var item = el("div", "log-detail-item");
+      item.appendChild(el("div", "log-detail-k", pair[0]));
+      item.appendChild(el("div", "log-detail-v", String(pair[1])));
+      grid.appendChild(item);
     });
-    host.appendChild(table);
+    host.appendChild(grid);
+  }
+
+  /* -- empty state ------------------------------------------------------- */
+
+  /* An empty log is a normal condition, not a failure, and must not be drawn
+     as one. What it says depends on WHY it is empty. */
+  function emptyState(health) {
+    var gateway = (health.components || {}).dns_gateway || {};
+    var box = el("div", "log-empty");
+    box.appendChild(el("div", "log-empty-title",
+      state.search ? "No matching activity" : "No activity yet"));
+
+    var message;
+    if (state.search) {
+      message = "Nothing recorded so far matches “" + state.search + "”.";
+    } else if (gateway.status === "disabled") {
+      message = "DNS protection is currently unavailable in this deployment. "
+        + "Connect the gateway to begin collecting DNS activity, or analyse a "
+        + "domain to see results here.";
+    } else {
+      message = "Analyse a domain, or send a query through the DNS gateway, "
+        + "and it will appear here.";
+    }
+    box.appendChild(el("div", "log-empty-msg", message));
+    return box;
   }
 
   /* -- rendering --------------------------------------------------------- */
 
   function applyFilter() {
-    var rows = document.querySelectorAll("#logList .logrow");
+    var rows = document.querySelectorAll("#logList tr.logrow");
     var shown = 0;
     Array.prototype.forEach.call(rows, function (row) {
       var levelOk = state.level === "ALL"
         || row.getAttribute("data-level") === state.level;
       row.classList.toggle("hidden", !levelOk);
+      var detail = row.nextElementSibling;
+      if (detail && detail.classList.contains("logrow-detail") && !levelOk) {
+        detail.classList.add("hidden");
+        row.classList.remove("is-open");
+      }
       if (levelOk) shown += 1;
     });
+    Array.prototype.forEach.call(
+      document.querySelectorAll("#logNotices .log-notice"), function (row) {
+        row.classList.toggle("hidden", state.level !== "ALL"
+          && row.getAttribute("data-level") !== state.level);
+      });
     var count = $("logCount");
     if (count) {
-      count.textContent = shown + " entr" + (shown === 1 ? "y" : "ies")
+      count.textContent = shown + (shown === 1 ? " event" : " events")
         + (state.level === "ALL" ? "" : " at " + state.level)
-        + (state.search ? ' matching "' + state.search + '"' : "");
+        + (state.search ? " matching “" + state.search + "”" : "");
     }
   }
 
   function render(events, health, dnsStatus) {
+    var notices = $("logNotices");
+    notices.innerHTML = "";
+    conditions(health, dnsStatus).forEach(function (item) {
+      notices.appendChild(noticeRow(item));
+    });
+
     var host = $("logList");
     host.innerHTML = "";
 
-    conditions(health, dnsStatus).forEach(function (item) {
-      host.appendChild(conditionRow(item));
-    });
-
     if (!events.length) {
-      host.appendChild(el("div", "note",
-        state.search
-          ? 'No stored activity matches "' + state.search + '".'
-          : "No activity recorded yet. Analyse a domain, or send a query "
-            + "through the DNS gateway, and it will appear here."));
+      $("logCount").textContent = "";
+      host.appendChild(emptyState(health));
     } else {
-      events.forEach(function (event) { host.appendChild(entry(event)); });
+      var wrap = el("div", "table-scroll");
+      var table = el("table", "log-table");
+      var head = el("tr");
+      ["Time", "Domain", "Action", "Risk", "Decision", "Source"]
+        .forEach(function (h) { head.appendChild(el("th", null, h)); });
+      table.appendChild(head);
+      events.forEach(function (event, index) {
+        eventRows(event, index).forEach(function (row) { table.appendChild(row); });
+      });
+      wrap.appendChild(table);
+      host.appendChild(wrap);
+      applyFilter();
     }
     renderDiagnostics(health);
-    applyFilter();
   }
 
   function load() {
@@ -318,7 +385,10 @@
     var filters = $("logFilters");
     if (filters) {
       LEVELS.forEach(function (level) {
-        var button = el("button", "chip" + (level === "ALL" ? " active" : ""), level);
+        var button = el("button", "chip" + (level === "ALL" ? " active" : ""),
+                        level === "ALL" ? "All" : level.charAt(0)
+                          + level.slice(1).toLowerCase());
+        button.setAttribute("type", "button");
         button.setAttribute("data-level", level);
         button.addEventListener("click", function () {
           state.level = level;

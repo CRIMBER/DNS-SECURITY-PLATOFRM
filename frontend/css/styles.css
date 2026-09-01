@@ -1,75 +1,87 @@
-/* DNS Security Operations - mission-control console.
+/* DNS Security Operations - product console.
  *
  * VISUAL SYSTEM
- *   Deep navy instrument surface, technical grid, restrained aerospace
- *   orange for chrome only. The look is borrowed from flight-control and
- *   telemetry consoles: dense, precise, monospaced values, small radii,
- *   no glow, no blur, no decoration that does not carry information.
+ *   A light, quiet admin surface: white cards on a soft neutral ground,
+ *   generous spacing, one restrained shadow, 10px radii, and type that is
+ *   read rather than decoded. The previous revision styled this page as a
+ *   flight-control instrument - grid overlay, monospace everywhere, uppercase
+ *   tracking on every label. That look told a visitor the product was
+ *   complicated. This one is meant to tell them it is trustworthy.
  *
- * COLOUR METHOD - unchanged from the validated baseline.
- *   - SAFE / SUSPICIOUS / MALICIOUS remain the documented STATUS colours,
- *     re-stepped into the dark lightness band (OKLCH L 0.48-0.67). Verified
- *     with backend/scripts/validate_palette.py against the new surface
- *     #0d1420: lightness band PASS, chroma floor PASS, normal-vision dE 16.9
- *     PASS, contrast PASS - identical to the result against the old #121820
- *     surface, so darkening the panel changed nothing about legibility.
- *   - Their CVD separation is 3.0, which FAILS the categorical target, as any
- *     red/amber/green status scheme must. The documented relief applies and is
- *     MANDATORY: every status mark ships with a text legend AND a direct
- *     numeric label, and Recent Activity is a full table of the same data.
- *     Colour never carries meaning alone anywhere on this page.
- *   - --accent (aerospace orange) and --telemetry (cyan) are CHROME, not data
- *     series: rules, active tab, focus rings, headings. They sit above the
- *     categorical lightness band on purpose (L 0.72 / 0.77) because chrome is
- *     read as an edge, not compared as a series. Both PASS contrast against
- *     the surface and are separated from each other by dE 30.3 / CVD 22.9.
- *     ORANGE NEVER ENCODES A VERDICT. If it ever does, this comment is a lie
- *     and the CVD relief above no longer holds.
- *   - Magnitude-only charts (threat categories) use ONE hue, not a
- *     categorical ramp, because they encode counts rather than identity.
+ *   Monospace is now reserved for values that are genuinely technical -
+ *   domain names, addresses, scores, model identifiers - because setting
+ *   ordinary prose in mono is what made the page read as a terminal.
+ *
+ * COLOUR METHOD
+ *   SAFE / SUSPICIOUS / MALICIOUS were re-stepped for a light ground and
+ *   re-validated with backend/scripts/validate_palette.py:
+ *
+ *     #116b35, #b7791f, #b3202a  --mode light  --surface #ffffff
+ *       lightness band PASS - chroma floor PASS - contrast PASS
+ *       normal-vision dE 18.3 PASS (floor 15.0)
+ *       CVD separation  10.9 PASS (target 8.0)
+ *
+ *   That CVD line is the notable one. The dark instrument palette FAILED it
+ *   at 3.0 and leaned on a documented relief; on a light ground the same
+ *   three verdicts separate properly for red-green colour vision. The relief
+ *   is kept anyway - every status mark still ships with a text label and a
+ *   number, and Recent Activity is still a full table of the same data - but
+ *   it is now a belt alongside braces rather than the only thing holding the
+ *   scheme up. Re-run the validator before changing any of these three.
+ *
+ *   --accent is CHROME, never a verdict: active tab, focus ring, primary
+ *   button. It is a blue precisely so it cannot be mistaken for one of the
+ *   three status colours above.
  */
 
 :root {
-  /* instrument surfaces */
-  --bg:         #070b11;
-  --bg-panel:   #0d1420;   /* the surface the palette was validated against */
-  --bg-raised:  #131c2a;
-  --bg-sunken:  #090e16;
-  --border:     #1c2836;
-  --border-lit: #2a3a4d;
+  /* surfaces - white cards on a soft neutral ground */
+  --bg:         #f5f6f8;
+  --bg-panel:   #ffffff;
+  --bg-raised:  #fafbfc;
+  --bg-sunken:  #f2f4f7;
+  --border:     #e4e8ee;
+  --border-lit: #cfd6e0;
 
-  --text:      #e6ecf3;
-  --text-dim:  #8494a8;
-  --text-mute: #5a6a7e;
+  --text:      #1b2434;
+  --text-dim:  #5b6675;
+  --text-mute: #8a94a3;
 
   /* chrome - never a verdict, see header */
-  --accent:    #ff7a29;   /* aerospace orange */
-  --telemetry: #4cc4e8;   /* cyan, for informational/telemetry marks */
+  --accent:    #2563eb;
+  --telemetry: #0e7490;
 
-  /* status palette - validated, see header comment */
-  --safe:     #0ca30c;
-  --warning:  #c98500;
-  --critical: #d03b3b;
-  --info:     #64748b;
+  /* status palette - validated on a light ground, see header comment */
+  --safe:     #116b35;
+  --warning:  #b7791f;
+  --critical: #b3202a;
+  --info:     #5b6675;
+
+  /* soft tints of the same three, for badge and row backgrounds */
+  --safe-bg:     #eaf6ee;
+  --warning-bg:  #fdf4e3;
+  --critical-bg: #fdecec;
+  --info-bg:     #eef1f5;
 
   /* severity ink for factor rows */
-  --sev-critical: #e05252;
-  --sev-high:     #e08a3c;
-  --sev-medium:   #c98500;
-  --sev-low:      #7f9a3a;
-  --sev-info:     #64748b;
+  --sev-critical: #b3202a;
+  --sev-high:     #c05621;
+  --sev-medium:   #b7791f;
+  --sev-low:      #5f7a2a;
+  --sev-info:     #5b6675;
 
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
   --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
 
-  --grid-line: rgba(120, 160, 200, .035);
+  /* one shadow, used sparingly - cards lift, nothing glows */
+  --shadow:    0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .06);
+  --shadow-md: 0 2px 4px rgba(16, 24, 40, .04), 0 4px 12px rgba(16, 24, 40, .07);
+  --radius:    10px;
+  --radius-sm: 6px;
 }
 
 * { box-sizing: border-box; }
 
-/* The technical grid and the single atmospheric wash are fixed to the
-   viewport, so they read as the surface the console sits on rather than as
-   content that scrolls. Both are far below text contrast on purpose. */
 body {
   margin: 0;
   background: var(--bg);
@@ -78,21 +90,6 @@ body {
   font-size: 15px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-}
-body::before {
-  content: "";
-  position: fixed; inset: 0; z-index: -2; pointer-events: none;
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 56px 56px;
-}
-body::after {
-  content: "";
-  position: fixed; inset: 0; z-index: -1; pointer-events: none;
-  background:
-    radial-gradient(1100px 520px at 50% -10%, rgba(255,122,41,.055), transparent 70%),
-    radial-gradient(900px 600px at 88% 4%, rgba(76,196,232,.045), transparent 68%);
 }
 
 .wrap { max-width: 1220px; margin: 0 auto; padding: 0 22px 64px; }
@@ -104,7 +101,7 @@ body::after {
  * Masthead
  * ===================================================================== */
 
-header { margin-bottom: 22px; }
+header { margin-bottom: 26px; }
 
 .masthead {
   border-bottom: 1px solid var(--border);
@@ -112,28 +109,22 @@ header { margin-bottom: 22px; }
   position: relative;
 }
 /* the one orange rule on the page: a hairline under the masthead */
-.masthead::after {
-  content: "";
-  position: absolute; left: 0; bottom: -1px; height: 1px; width: 168px;
-  background: linear-gradient(90deg, var(--accent), transparent);
-}
 
 .head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 
 h1 {
-  font-size: 21px; margin: 0 0 4px; font-weight: 700;
-  letter-spacing: .13em; text-transform: uppercase;
-  display: flex; align-items: center; gap: 11px;
+  font-size: 20px; margin: 0 0 2px; font-weight: 650;
+  letter-spacing: -.01em; color: var(--text);
+  display: flex; align-items: center; gap: 10px;
 }
 h1 .dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: var(--safe); flex: none;
-  box-shadow: 0 0 0 3px rgba(12,163,12,.16);
-  animation: mc-pulse 2.8s ease-in-out infinite;
+  box-shadow: 0 0 0 3px var(--safe-bg);
 }
 .subtitle {
-  color: var(--text-dim); font-size: 11px; margin: 0;
-  letter-spacing: .17em; text-transform: uppercase; font-family: var(--mono);
+  color: var(--text-dim); font-size: 13.5px; margin: 0;
+  letter-spacing: 0; font-family: var(--sans);
 }
 
 .head-actions { display: flex; align-items: center; gap: 12px; }
@@ -150,74 +141,82 @@ h1 .dot {
 /* Every row here mirrors one component the backend already reports in
    /api/health. Nothing is asserted that the payload does not contain. */
 
+/* Protection status: the first thing read, so it gets real cards rather than
+   a strip of instrument cells. Each states a plain-English condition and, when
+   the condition needs explaining, one line saying why. */
 .sysbar {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
-  gap: 1px; margin-top: 16px;
-  background: var(--border); border: 1px solid var(--border);
-  border-radius: 3px; overflow: hidden;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px; margin: 18px 0 4px;
 }
 .sysbar-cell {
-  background: var(--bg-panel); padding: 9px 13px;
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 14px 16px; display: block;
 }
 .sysbar-k {
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em;
-  text-transform: uppercase; color: var(--text-mute); white-space: nowrap;
+  font-family: var(--sans); font-size: 12px; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--text-mute); font-weight: 600;
+  margin-bottom: 6px;
 }
 .sysbar-v {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
-  font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-family: var(--sans); font-size: 17px; letter-spacing: -.01em;
+  font-weight: 600; display: flex; align-items: center; gap: 8px;
 }
 .sysbar-led {
-  width: 6px; height: 6px; border-radius: 50%; flex: none;
-  background: currentColor; box-shadow: 0 0 0 3px rgba(255,255,255,.05);
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: currentColor;
 }
-.sysbar-v.up   { color: #35bf35; }
-.sysbar-v.off  { color: #94a3b8; }
-.sysbar-v.warn { color: #dda32e; }
-.sysbar-v.down { color: #e26a6a; }
+.sysbar-v.up   { color: var(--safe); }
+.sysbar-v.off  { color: var(--info); }
+.sysbar-v.warn { color: var(--warning); }
+.sysbar-v.down { color: var(--critical); }
 
 /* -- tabs ---------------------------------------------------------------- */
 
 .tabs {
-  display: flex; gap: 0; margin-top: 20px; flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
+  display: flex; gap: 4px; margin-top: 22px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--border); padding-bottom: 0;
 }
 .tab {
   background: none; border: 0; border-bottom: 2px solid transparent;
-  color: var(--text-mute); padding: 10px 16px; font-size: 11px;
-  cursor: pointer; font-family: var(--mono); border-radius: 0;
-  letter-spacing: .13em; text-transform: uppercase; font-weight: 600;
-  margin-bottom: -1px; transition: color .12s;
+  color: var(--text-dim); padding: 9px 14px; font-size: 13.5px;
+  cursor: pointer; font-family: var(--sans); border-radius: 0;
+  letter-spacing: 0; text-transform: none; font-weight: 500;
+  margin-bottom: -1px; transition: color .12s, border-color .12s;
 }
 .tab:hover  { color: var(--text); }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px;
+}
 
 /* =======================================================================
  * Buttons + inputs
  * ===================================================================== */
 
 button {
-  background: var(--accent); color: #100a04; border: 0; border-radius: 3px;
-  padding: 0 26px; font-weight: 700; font-size: 12px; cursor: pointer;
-  font-family: var(--mono); letter-spacing: .13em; text-transform: uppercase;
+  background: var(--accent); color: #ffffff; border: 0; border-radius: var(--radius-sm);
+  padding: 0 20px; font-weight: 600; font-size: 14px; cursor: pointer;
+  font-family: var(--sans); letter-spacing: 0; text-transform: none;
   transition: background .12s;
 }
-button:hover    { background: #ff8f4d; }
+button:hover    { background: #1d4ed8; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button:disabled { opacity: .45; cursor: default; }
 
 button.ghost {
-  background: var(--bg-raised); color: var(--text-dim);
-  border: 1px solid var(--border); padding: 7px 15px;
-  font-size: 10px; font-weight: 600; letter-spacing: .13em;
+  background: var(--bg-panel); color: var(--text-dim);
+  border: 1px solid var(--border-lit); padding: 8px 14px;
+  font-size: 13.5px; font-weight: 500; letter-spacing: 0;
 }
-button.ghost:hover        { color: var(--text); border-color: var(--accent); background: var(--bg-raised); }
+button.ghost:hover        { color: var(--text); border-color: var(--text-mute); background: var(--bg-sunken); }
 button.ghost.danger:hover { color: var(--critical); border-color: var(--critical); }
 
 input[type="text"], select {
-  background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px;
-  color: var(--text); padding: 10px 13px; font-family: var(--mono);
-  font-size: 13px; outline: none; transition: border-color .12s;
+  background: var(--bg-panel); border: 1px solid var(--border-lit);
+  border-radius: var(--radius-sm);
+  color: var(--text); padding: 10px 13px; font-family: var(--sans);
+  font-size: 14px; outline: none; transition: border-color .12s;
 }
 input[type="text"]:focus, select:focus {
   border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255,122,41,.25);
@@ -237,12 +236,13 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 }
 
 .chip {
-  background: var(--bg-raised); border: 1px solid var(--border); border-radius: 3px;
-  color: var(--text-dim); padding: 4px 11px; font-family: var(--mono);
-  font-size: 11px; cursor: pointer; font-weight: 400;
-  letter-spacing: 0; text-transform: none;
+  background: var(--bg-panel); border: 1px solid var(--border-lit);
+  border-radius: 999px;
+  color: var(--text-dim); padding: 5px 14px; font-family: var(--sans);
+  font-size: 13.5px; cursor: pointer; font-weight: 500;
+  letter-spacing: 0; text-transform: none; height: auto;
 }
-.chip:hover { border-color: var(--accent); color: var(--text); background: var(--bg-raised); }
+.chip:hover { border-color: var(--text-mute); color: var(--text); background: var(--bg-sunken); }
 
 .filters { display: flex; gap: 9px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
 .filters input { flex: 0 1 260px; }
@@ -255,12 +255,12 @@ input[type="text"]::placeholder { color: var(--text-mute); }
    One pixel, 4% white - enough to read as a bevel, not as a glow. */
 .panel {
   background: var(--bg-panel); border: 1px solid var(--border);
-  border-radius: 4px; padding: 18px 20px; margin-bottom: 14px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+  border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px;
+  box-shadow: var(--shadow);
 }
 .panel h2 {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .16em;
-  color: var(--text-dim); margin: 0 0 14px; font-weight: 700;
+  font-size: 15px; text-transform: none; letter-spacing: -.005em;
+  color: var(--text); margin: 0 0 14px; font-weight: 600;
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
 }
 .panel h2 .muted { font-size: 10px; letter-spacing: .08em; text-transform: none; }
@@ -274,12 +274,12 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 /* section caption above a view */
 .view-head { margin: 4px 0 16px; }
 .view-head h2 {
-  font-size: 15px; margin: 0 0 3px; font-weight: 700;
-  letter-spacing: .15em; text-transform: uppercase; color: var(--text);
+  font-size: 22px; margin: 0 0 4px; font-weight: 650;
+  letter-spacing: -.015em; text-transform: none; color: var(--text);
 }
 .view-head p {
-  margin: 0; font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: .11em; text-transform: uppercase; color: var(--text-mute);
+  margin: 0; font-family: var(--sans); font-size: 14px;
+  letter-spacing: 0; text-transform: none; color: var(--text-dim);
 }
 
 /* =======================================================================
@@ -292,8 +292,8 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 }
 .tile {
   background: var(--bg-panel); border: 1px solid var(--border);
-  border-radius: 4px; padding: 14px 16px; position: relative; overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+  border-radius: var(--radius); padding: 16px 18px; position: relative;
+  overflow: hidden; box-shadow: var(--shadow);
 }
 /* a 2px tick on the left edge - instrument gutter, not decoration */
 .tile::before {
@@ -301,40 +301,44 @@ input[type="text"]::placeholder { color: var(--text-mute); }
   width: 2px; background: var(--border-lit); border-radius: 0 2px 2px 0;
 }
 .tile-k {
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: .15em;
-  color: var(--text-mute); margin-bottom: 7px; font-family: var(--mono);
+  font-size: 12.5px; text-transform: none; letter-spacing: 0;
+  color: var(--text-dim); margin-bottom: 8px; font-family: var(--sans);
+  font-weight: 500;
 }
 .tile-v {
-  font-family: var(--mono); font-size: 29px; font-weight: 700; line-height: 1;
+  font-family: var(--sans); font-size: 30px; font-weight: 650; line-height: 1.1;
   letter-spacing: -.02em; font-variant-numeric: tabular-nums;
 }
-.tile-sub { font-size: 10.5px; color: var(--text-mute); margin-top: 6px; font-family: var(--mono); }
+.tile-sub {
+  font-size: 12.5px; color: var(--text-mute); margin-top: 6px;
+  font-family: var(--sans);
+}
 
 /* =======================================================================
  * Badges
  * ===================================================================== */
 
 .badge {
-  display: inline-block; padding: 3px 10px; border-radius: 3px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
-  font-family: var(--mono); text-transform: uppercase;
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .01em;
+  font-family: var(--sans); text-transform: none;
 }
 .badge-SAFE, .badge-ALLOW, .badge-TRUSTED {
-  background: rgba(12,163,12,.13); color: #35bf35; border: 1px solid rgba(12,163,12,.42);
+  background: var(--safe-bg); color: var(--safe); border: 1px solid #cfe7d8;
 }
 .badge-SUSPICIOUS, .badge-MONITOR {
-  background: rgba(201,133,0,.13); color: #dda32e; border: 1px solid rgba(201,133,0,.42);
+  background: var(--warning-bg); color: var(--warning); border: 1px solid #f0dfba;
 }
 .badge-MALICIOUS, .badge-BLOCK {
-  background: rgba(208,59,59,.13); color: #e26a6a; border: 1px solid rgba(208,59,59,.42);
+  background: var(--critical-bg); color: var(--critical); border: 1px solid #f2cdcd;
 }
 .badge-UNKNOWN {
-  background: rgba(100,116,139,.13); color: #94a3b8; border: 1px solid rgba(100,116,139,.42);
+  background: var(--info-bg); color: var(--info); border: 1px solid #dde3ea;
 }
 /* Abstention is neither good news nor bad news: a detector saying it has no
    information must not be painted in the colour of a safe verdict. */
 .badge-ABSTAIN, .badge-KIND {
-  background: rgba(100,116,139,.13); color: #94a3b8; border: 1px solid rgba(100,116,139,.42);
+  background: rgba(100,116,139,.13); color: var(--info); border: 1px solid rgba(100,116,139,.42);
 }
 
 .abstain-list { margin-top: 10px; display: grid; gap: 8px; }
@@ -363,7 +367,6 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 .hero {
   background: var(--bg-panel); border: 1px solid var(--border);
   border-radius: 4px; margin-bottom: 14px; overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
   position: relative;
 }
 /* one slow scan pass across the hero when a result lands */
@@ -471,10 +474,10 @@ input[type="text"]::placeholder { color: var(--text-mute); }
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
   text-transform: uppercase; text-align: right; white-space: nowrap;
 }
-.evstate.hit   { color: #e26a6a; }
-.evstate.warn  { color: #dda32e; }
-.evstate.clear { color: #35bf35; }
-.evstate.idle  { color: #94a3b8; }
+.evstate.hit   { color: var(--critical); }
+.evstate.warn  { color: var(--warning); }
+.evstate.clear { color: var(--safe); }
+.evstate.idle  { color: var(--info); }
 .evstate.active{ color: var(--telemetry); }
 .evdetail {
   font-size: 11.5px; color: var(--text-dim); line-height: 1.45;
@@ -578,11 +581,17 @@ input[type="text"]::placeholder { color: var(--text-mute); }
 .kv dd { margin: 0; font-family: var(--mono); word-break: break-word; }
 
 .note {
-  margin-top: 12px; padding: 10px 12px; background: var(--bg-sunken);
+  margin-top: 12px; padding: 11px 14px; background: var(--bg-sunken);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--info); border-radius: 3px;
-  font-size: 12px; color: var(--text-dim); line-height: 1.55;
+  border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--text-dim); line-height: 1.55;
 }
+/* the log's row count is a caption, not a callout */
+#logCount {
+  margin: 0 0 4px; padding: 0; background: none; border: 0;
+  font-size: 13px; color: var(--text-mute);
+}
+#logCount:empty { display: none; }
 
 .bar { height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 3px; transition: width .5s cubic-bezier(.16,1,.3,1); }
@@ -608,14 +617,14 @@ input[type="text"]::placeholder { color: var(--text-mute); }
  * ===================================================================== */
 
 .table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 th {
-  text-align: left; font-size: 9.5px; text-transform: uppercase;
-  letter-spacing: .14em; color: var(--text-mute); font-weight: 700;
-  padding: 0 12px 9px 0; border-bottom: 1px solid var(--border);
-  white-space: nowrap; font-family: var(--mono);
+  text-align: left; font-size: 12px; text-transform: none;
+  letter-spacing: 0; color: var(--text-dim); font-weight: 600;
+  padding: 0 14px 10px 0; border-bottom: 1px solid var(--border);
+  white-space: nowrap; font-family: var(--sans);
 }
-td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+td { padding: 12px 14px 12px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 td.mono { font-family: var(--mono); }
 td.num  { font-family: var(--mono); text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -829,165 +838,203 @@ footer code { font-family: var(--mono); color: var(--text-dim); }
 }
 
 /* -- system status note ---------------------------------------------------
-   One short line under a status cell saying what the state means. Present
+   One short line under a status card saying what the state means. Present
    only where the state needs explaining - Active does not. */
 .sysbar-note {
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.35;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--text-dim);
-  max-width: 30ch;
 }
 
 /* -- activity log ---------------------------------------------------------
-   A scannable ledger, not a console dump. Severity is a fixed-width column so
-   the eye can run down it; the subject is the loudest thing on the row. */
+   A product activity feed: readable rows, one badge per decision, technical
+   values in mono and nothing else. */
 .log-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 
-.log-search {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
+.log-search { display: flex; gap: 8px; align-items: center; }
 
 .log-search input {
-  background: var(--bg-sunken);
-  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-lit);
   color: var(--text);
-  border-radius: 3px;
-  padding: 6px 9px;
-  font-family: inherit;
-  font-size: 12px;
-  min-width: 200px;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: var(--sans);
+  font-size: 14px;
+  min-width: 220px;
 }
+
+.log-search input::placeholder { color: var(--text-mute); }
 
 .log-search input:focus {
-  outline: none;
-  border-color: var(--border-lit);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
 }
 
-.loglist {
-  border-top: 1px solid var(--border);
-  max-height: 620px;
-  overflow-y: auto;
+/* standing conditions - notices, not table rows */
+.log-notices { display: flex; flex-direction: column; gap: 8px; }
+.log-notices:not(:empty) { margin-bottom: 14px; }
+
+.log-notice {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: 13.5px;
 }
 
-.logrow {
-  border-bottom: 1px solid var(--border);
-  border-left: 2px solid transparent;
+.log-notice-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 6px;
+  background: currentColor;
 }
 
-.logrow[open] { background: var(--bg-raised); }
-
-.logrow-head {
-  display: grid;
-  grid-template-columns: 78px 74px 1fr auto;
-  gap: 10px;
-  align-items: baseline;
-  padding: 8px 10px;
-  cursor: pointer;
-  list-style: none;
+.log-notice-body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.log-notice-subject { font-weight: 600; color: var(--text); }
+.log-notice-msg { color: var(--text-dim); }
+.log-notice-tag {
+  font-size: 12px; color: var(--text-mute); white-space: nowrap; margin-top: 1px;
 }
 
-.logrow-head::-webkit-details-marker { display: none; }
-.logrow-condition .logrow-head { cursor: default; }
+.log-notice.lg-info    { color: var(--safe);     background: var(--safe-bg);     border-color: #cfe7d8; }
+.log-notice.lg-warn    { color: var(--warning);  background: var(--warning-bg);  border-color: #f0dfba; }
+.log-notice.lg-error   { color: var(--critical); background: var(--critical-bg); border-color: #f2cdcd; }
+.log-notice.lg-blocked { color: var(--critical); background: var(--critical-bg); border-color: #f2cdcd; }
 
-.logrow-time {
-  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
-  font-size: 11px;
-  color: var(--text-dim);
+/* the table */
+.log-table td { vertical-align: middle; }
+.log-table tr.logrow:hover { background: var(--bg-sunken); }
+.log-table tr.logrow.is-open { background: var(--bg-sunken); }
+
+.log-time {
+  font-family: var(--mono); font-size: 12.5px; color: var(--text-dim);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 
-.logrow-sev {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+.log-toggle {
+  background: none; border: 0; padding: 0; margin: 0;
+  font-family: var(--mono); font-size: 13.5px; font-weight: 500;
+  color: var(--text); cursor: pointer; text-align: left;
+  overflow-wrap: anywhere; letter-spacing: 0;
+  min-width: 0; height: auto; line-height: 1.4;
+}
+.log-toggle:hover { color: var(--accent); text-decoration: underline; }
+.log-toggle:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px;
 }
 
-.logrow-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-
-.logrow-subject {
-  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
-  font-size: 12px;
-  color: var(--text);
-  overflow-wrap: anywhere;
+.log-action { color: var(--text-dim); }
+.log-risk {
+  font-family: var(--mono); font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-
-.logrow-msg { font-size: 11.5px; color: var(--text-dim); }
-
-.logrow-cat {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+.log-source {
+  font-family: var(--mono); font-size: 12.5px; color: var(--text-dim);
   white-space: nowrap;
 }
 
-.logrow-detail {
-  padding: 4px 10px 14px 90px;
-  border-top: 1px dashed var(--border);
+/* expanded detail */
+.logrow-detail > td { padding: 0 0 16px; border-bottom: 1px solid var(--border); }
+
+.log-detail {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
 }
 
-.logrow-detail-h {
-  margin: 10px 0 4px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+.log-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px 22px;
 }
 
-.logrow-factors {
-  margin: 0;
-  padding-left: 16px;
-  font-size: 11.5px;
-  color: var(--text-dim);
+.log-detail-k {
+  font-size: 12px; color: var(--text-mute); font-weight: 600; margin-bottom: 2px;
+}
+.log-detail-v {
+  font-family: var(--mono); font-size: 13px; color: var(--text);
+  overflow-wrap: anywhere;
 }
 
-.logrow-factors li { margin-bottom: 2px; }
+.log-detail-h {
+  margin: 16px 0 8px; font-size: 13px; font-weight: 600; color: var(--text);
+}
 
-/* Severity colours reuse the existing verdict palette, so a blocked line in
-   the log reads the same red as a BLOCK verdict everywhere else. */
-.lg-info .logrow-sev    { color: var(--info); }
-.lg-warn .logrow-sev    { color: var(--warning); }
-.lg-blocked .logrow-sev { color: var(--critical); }
-.lg-error .logrow-sev   { color: var(--critical); }
+.log-factors { margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+.log-factors li {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 5px 0; border-bottom: 1px solid var(--border); color: var(--text-dim);
+}
+.log-factors li:last-child { border-bottom: 0; }
+.log-factor-n {
+  font-family: var(--mono); color: var(--text); font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 
-.lg-warn    { border-left-color: var(--warning); }
-.lg-blocked { border-left-color: var(--critical); }
-.lg-error   { border-left-color: var(--critical); }
-
-.logrow-condition { background: var(--bg-sunken); }
+/* empty state - a normal condition, never drawn as a failure */
+.log-empty { padding: 44px 20px; text-align: center; }
+.log-empty-title {
+  font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px;
+}
+.log-empty-msg {
+  font-size: 14px; color: var(--text-dim); max-width: 46ch;
+  margin: 0 auto; line-height: 1.6;
+}
 
 /* -- diagnostics ----------------------------------------------------------
-   Collapsed by default and worded as engineering detail, so nobody mistakes
-   a corpus size for a security finding. */
-.diagnostics { margin-top: 14px; }
+   An ordinary expandable section. Collapsed by default, and worded so nobody
+   mistakes a corpus size for a security finding. */
+.diagnostics { margin-top: 16px; }
 
 .diagnostics > summary {
   cursor: pointer;
   list-style: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .diagnostics > summary::-webkit-details-marker { display: none; }
-
-.diag-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+.diagnostics > summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--text-mute);
+  transition: transform .15s;
+}
+.diagnostics[open] > summary::before { transform: rotate(90deg); }
+.diagnostics > summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px;
 }
 
-.diag-sub { font-size: 11px; color: var(--text-dim); }
+.diag-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.diag-sub { font-size: 13px; color: var(--text-dim); }
 
-.diagnostics[open] > summary { margin-bottom: 10px; }
+.diagnostics[open] > summary { margin-bottom: 16px; }
+
+/* -- responsive -----------------------------------------------------------
+   Below the tablet breakpoint the Action and Source columns are the first to
+   go: the decision, the domain and the risk are what a phone needs. */
+@media (max-width: 720px) {
+  .wrap { padding: 0 14px 48px; }
+  .log-controls { flex-direction: column; align-items: stretch; }
+  .log-search { width: 100%; }
+  .log-search input { flex: 1; min-width: 0; }
+  .log-table th:nth-child(3), .log-table td.log-action { display: none; }
+  .log-table th:nth-child(6), .log-table td.log-source { display: none; }
+  .log-detail-grid { grid-template-columns: 1fr; }
+  .sysbar { grid-template-columns: 1fr; }
+  .head-row { flex-direction: column; align-items: flex-start; }
+}

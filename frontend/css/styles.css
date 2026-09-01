@@ -145,11 +145,6 @@ h1 .dot {
 .toggle input { accent-color: var(--accent); cursor: pointer; }
 .toggle.live-on { color: var(--safe); }
 
-.status-line {
-  font-family: var(--mono); font-size: 11px; color: var(--text-mute);
-  margin-top: 12px; letter-spacing: .04em;
-}
-.status-line b { color: var(--text-dim); font-weight: 600; }
 
 /* -- system status strip ------------------------------------------------- */
 /* Every row here mirrors one component the backend already reports in
@@ -832,3 +827,167 @@ footer code { font-family: var(--mono); color: var(--text-dim); }
   .filter-line { grid-template-columns: 1fr; }
   .why-row { grid-template-columns: 16px 52px 1fr; gap: 8px; }
 }
+
+/* -- system status note ---------------------------------------------------
+   One short line under a status cell saying what the state means. Present
+   only where the state needs explaining - Active does not. */
+.sysbar-note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  max-width: 30ch;
+}
+
+/* -- activity log ---------------------------------------------------------
+   A scannable ledger, not a console dump. Severity is a fixed-width column so
+   the eye can run down it; the subject is the loudest thing on the row. */
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.log-search {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.log-search input {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 6px 9px;
+  font-family: inherit;
+  font-size: 12px;
+  min-width: 200px;
+}
+
+.log-search input:focus {
+  outline: none;
+  border-color: var(--border-lit);
+}
+
+.loglist {
+  border-top: 1px solid var(--border);
+  max-height: 620px;
+  overflow-y: auto;
+}
+
+.logrow {
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+}
+
+.logrow[open] { background: var(--bg-raised); }
+
+.logrow-head {
+  display: grid;
+  grid-template-columns: 78px 74px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.logrow-head::-webkit-details-marker { display: none; }
+.logrow-condition .logrow-head { cursor: default; }
+
+.logrow-time {
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.logrow-sev {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.logrow-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.logrow-subject {
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.logrow-msg { font-size: 11.5px; color: var(--text-dim); }
+
+.logrow-cat {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.logrow-detail {
+  padding: 4px 10px 14px 90px;
+  border-top: 1px dashed var(--border);
+}
+
+.logrow-detail-h {
+  margin: 10px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.logrow-factors {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.logrow-factors li { margin-bottom: 2px; }
+
+/* Severity colours reuse the existing verdict palette, so a blocked line in
+   the log reads the same red as a BLOCK verdict everywhere else. */
+.lg-info .logrow-sev    { color: var(--info); }
+.lg-warn .logrow-sev    { color: var(--warning); }
+.lg-blocked .logrow-sev { color: var(--critical); }
+.lg-error .logrow-sev   { color: var(--critical); }
+
+.lg-warn    { border-left-color: var(--warning); }
+.lg-blocked { border-left-color: var(--critical); }
+.lg-error   { border-left-color: var(--critical); }
+
+.logrow-condition { background: var(--bg-sunken); }
+
+/* -- diagnostics ----------------------------------------------------------
+   Collapsed by default and worded as engineering detail, so nobody mistakes
+   a corpus size for a security finding. */
+.diagnostics { margin-top: 14px; }
+
+.diagnostics > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diagnostics > summary::-webkit-details-marker { display: none; }
+
+.diag-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.diag-sub { font-size: 11px; color: var(--text-dim); }
+
+.diagnostics[open] > summary { margin-bottom: 10px; }

@@ -24,11 +24,13 @@
           </div>
         </div>
 
-        <!-- Every cell is filled from /api/health. A component the payload
-             does not report is not displayed. See renderSysbar() in app.js. -->
+        <!-- Product state only: System, DNS Protection, Analysis Engine.
+             Versions, model names, corpus sizes and the fusion formula are
+             engineering detail and live in Diagnostics, under Activity Log.
+             DNS Protection never reads Active unless the backend reports the
+             gateway running. See renderSysbar() in app.js. -->
         <div class="sysbar" id="sysbar"></div>
 
-        <div class="status-line" id="statusLine">connecting to engine&hellip;</div>
       </div>
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview">Overview</button>
@@ -39,6 +41,7 @@
         <button class="tab" data-tab="activity">Recent Activity</button>
         <button class="tab" data-tab="dns">DNS Security</button>
         <button class="tab" data-tab="analytics">Threat Analytics</button>
+        <button class="tab" data-tab="logs">Activity Log</button>
       </nav>
     </header>
 
@@ -289,6 +292,41 @@
       </div>
     </section>
 
+    <!-- ========================== ACTIVITY LOG ========================== -->
+    <!-- Reads /api/events - the same stored events the rest of the console
+         uses. There is no separate log store and nothing is buffered in the
+         browser. Severity is derived from the decision the engine already
+         recorded; see logs.js. -->
+    <section class="view hidden" id="view-logs">
+      <div class="view-head">
+        <h2>Activity Log</h2>
+        <p>Security events as they were recorded, newest first</p>
+      </div>
+
+      <div class="panel">
+        <div class="log-controls">
+          <div class="chips" id="logFilters"></div>
+          <div class="log-search">
+            <input type="text" id="logSearch" placeholder="Filter by domain&hellip;"
+                   autocomplete="off" spellcheck="false">
+            <button class="ghost" id="logSearchBtn">Search</button>
+            <button class="ghost" id="logClearSearch">Clear</button>
+          </div>
+        </div>
+        <div class="note" id="logCount"></div>
+        <div class="loglist" id="logList"></div>
+      </div>
+
+      <details class="panel diagnostics">
+        <summary>
+          <span class="diag-title">Diagnostics</span>
+          <span class="diag-sub">Build and model detail &mdash; for engineers,
+            not part of the security picture</span>
+        </summary>
+        <div id="logDiagnostics"></div>
+      </details>
+    </section>
+
     <footer>
       Every figure on this page is computed by the backend from stored events
       &mdash; nothing is hardcoded. The DNS gateway resolves allowed queries
@@ -306,5 +344,6 @@
   <script src="/static/js/filtering.js"></script>
   <script src="/static/js/capture.js"></script>
   <script src="/static/js/intel.js"></script>
+  <script src="/static/js/logs.js"></script>
 </body>
 </html>

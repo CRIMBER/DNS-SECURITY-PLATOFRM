@@ -78,7 +78,7 @@
    * ===================================================================== */
 
   var VIEWS = ["overview", "filtering", "analyse", "capture", "intel",
-               "activity", "dns", "analytics"];
+               "activity", "dns", "analytics", "logs"];
 
   function showTab(name) {
     VIEWS.forEach(function (view) {
@@ -93,6 +93,7 @@
     if (name === "filtering" && window.FilteringView) window.FilteringView.load();
     if (name === "capture" && window.CaptureView) window.CaptureView.load();
     if (name === "intel" && window.IntelView) window.IntelView.load();
+    if (name === "logs" && window.LogsView) window.LogsView.load();
     if (name === "analyse") $("domainInput").focus();
   }
 
@@ -797,56 +798,64 @@
 
   /* -- system status strip (from /api/health) ---------------------------- */
 
-  /* A cell is only emitted when the health payload actually carries the
-     component it describes. "READY" for DNS ANALYSIS means the three
-     detectors reported ok - it is not a claim that the gateway is bound,
-     which is a separate cell with its own real state. */
+  /* Product state, and only product state.
+   *
+   * Three things a person operating this console needs to know: is the service
+   * up, is DNS traffic actually being filtered, and is analysis working. Build
+   * numbers, model names, corpus sizes and the fusion formula answer none of
+   * those questions - they moved to Diagnostics, under Activity Log.
+   *
+   * DNS Protection is the one that must not flatter. It reads Active only when
+   * the backend reports the gateway running; a gateway that is switched off in
+   * this deployment says Disabled, and one that tried to bind and failed says
+   * Unavailable. Those are three different facts and the operator needs the
+   * difference. */
   function renderSysbar(health) {
     var host = $("sysbar");
     if (!host) return;
     host.innerHTML = "";
-    var c = health.components || {};
+    var c = (health && health.components) || {};
 
-    function cell(key, text, level) {
+    function cell(key, text, level, note) {
       var box = el("div", "sysbar-cell");
       box.appendChild(el("div", "sysbar-k", key));
       var v = el("div", "sysbar-v " + level);
       v.appendChild(el("span", "sysbar-led"));
       v.appendChild(el("span", null, text));
       box.appendChild(v);
+      if (note) box.appendChild(el("div", "sysbar-note", note));
       host.appendChild(box);
     }
 
-    cell("System Status", health.status === "ok" ? "OPERATIONAL" : String(health.status).toUpperCase(),
+    var reachable = health && health.status;
+    if (!reachable) {
+      cell("System", "Offline", "down", "Cannot reach the service");
+      return;
+    }
+    cell("System", health.status === "ok" ? "Online" : "Degraded",
          health.status === "ok" ? "up" : "warn");
-
-    if (c.threat_intelligence) {
-      cell("Threat Engine", c.threat_intelligence.status === "ok" ? "ONLINE" : "DEGRADED",
-           c.threat_intelligence.status === "ok" ? "up" : "warn");
-    }
-    if (c.risk_engine) {
-      cell("Analysis Engine", c.risk_engine.status === "ok" ? "ONLINE" : "DEGRADED",
-           c.risk_engine.status === "ok" ? "up" : "warn");
-    }
-
-    var detectors = [c.dga_detector, c.tunnel_detector, c.behavioral_analyzer];
-    var present = detectors.filter(Boolean);
-    if (present.length) {
-      var allOk = present.every(function (d) { return d.status === "ok"; });
-      cell("DNS Analysis", allOk ? "READY" : "DEGRADED", allOk ? "up" : "warn");
-    }
 
     var gw = c.dns_gateway;
     if (gw) {
-      // The gateway has three real states and they must not be blurred:
-      // serving, deliberately switched off, or tried and failed to bind.
-      var text = "OFFLINE", level = "off";
-      if (gw.status === "ok")            { text = "ACTIVE";      level = "up"; }
-      else if (gw.status === "disabled") { text = "DISABLED";    level = "off"; }
-      else if (gw.status === "error")    { text = "BIND FAILED"; level = "down"; }
-      else                               { text = String(gw.status).toUpperCase(); }
-      cell("DNS Gateway", text, level);
+      if (gw.status === "ok") {
+        cell("DNS Protection", "Active", "up", "Filtering DNS queries");
+      } else if (gw.status === "disabled") {
+        cell("DNS Protection", "Disabled", "off",
+             "DNS gateway is not available in this deployment");
+      } else {
+        cell("DNS Protection", "Unavailable", "down",
+             "DNS gateway is not filtering traffic");
+      }
     }
+
+    // Operational only if every part that does the analysing reports healthy.
+    var parts = [c.risk_engine, c.threat_intelligence, c.dga_detector,
+                 c.tunnel_detector, c.behavioral_analyzer].filter(Boolean);
+    var healthy = parts.length && parts.every(function (p) {
+      return p.status === undefined || p.status === "ok";
+    });
+    cell("Analysis Engine", healthy ? "Operational" : "Degraded",
+         healthy ? "up" : "warn");
   }
 
   /* -- risk gauge -------------------------------------------------------- */
@@ -1324,27 +1333,14 @@
     });
   });
 
+  // Health drives the product-state strip only. The build/model detail this
+  // used to print across the masthead now lives in Diagnostics, under the
+  // Activity Log tab, where an engineer can find it and a user is not made to
+  // read it.
   request("/api/health").then(function (response) {
-    if (!response.ok) {
-      $("statusLine").textContent = "engine unreachable";
-      return;
-    }
-    var health = response.data;
-    renderSysbar(health);
-    var ti = health.components.threat_intelligence;
-    var dga = health.components.dga_detector;
-    $("statusLine").innerHTML =
-      "engine <b>" + health.status + "</b> &middot; v" + health.version +
-      " &middot; risk policy <b>v" + health.risk_config_version + "</b>" +
-      " &middot; <b>" + ti.indicators_total + "</b> indicators, <b>" +
-      ti.trusted_domains + "</b> trusted &middot; DGA <b>" + dga.model +
-      "</b> (" + dga.corpus_size + "-label corpus, no accuracy claimed)" +
-      " &middot; fusion <b>" + health.components.risk_engine.fusion + "</b>" +
-      " &middot; DNS gateway <b>" + health.components.dns_gateway.status + "</b>" +
-      (health.components.dns_gateway.listen_address
-        ? " on " + health.components.dns_gateway.listen_address : "");
+    renderSysbar(response.ok ? response.data : null);
   }).catch(function () {
-    $("statusLine").textContent = "engine unreachable";
+    renderSysbar(null);
   });
 
   loadStats();

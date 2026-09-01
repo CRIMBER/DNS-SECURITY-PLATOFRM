@@ -302,37 +302,95 @@ class TestEmptyStateIsNotAnError:
             assert word not in block, "an empty log is a normal state"
 
 
-class TestStatusPaletteStaysValidated:
-    """The three verdict colours must keep passing the project validator.
+class TestStatusPaletteStaysMeasured:
+    """The three verdict colours must keep clearing the checks that matter.
 
-    Re-stepping them for the light ground was the point of Phase 5B; this
-    fails if someone later picks a red that a red-green viewer cannot tell
-    from the amber.
+    The theme moved to a near-black ground in Phase 5C, and the validator's
+    dark lightness band (0.48-0.67) rejects every accent bright enough to be
+    read comfortably on #0e0f13 - the in-band alternatives contrast at only
+    ~3.5:1. So the band is a documented, deliberate exception, recorded at the
+    top of styles.css, and these tests pin the three checks that actually
+    protect a reader:
+
+      * colour-vision separation, so a red-green viewer can tell blocked from
+        monitored - the ORIGINAL dark theme failed this at 3.0;
+      * the normal-vision floor;
+      * contrast against both the card and the page.
+
+    They also assert that the band is the ONLY thing failing, so a future
+    edit cannot quietly give away contrast or separation under cover of the
+    exception.
     """
 
-    def test_status_colours_pass_the_palette_validator(self, css):
+    def _tokens(self, css):
         import re
-        import subprocess
-        import sys
-
         wanted = {}
         for name in ("safe", "warning", "critical"):
             m = re.search(r"--%s:\s*(#[0-9a-fA-F]{6});" % name, css)
             assert m, "--%s missing from the token block" % name
             wanted[name] = m.group(1)
+        return wanted
 
+    def _report(self, css, surface):
+        import subprocess
+        import sys
+        w = self._tokens(css)
         script = os.path.join(ROOT, "backend", "scripts", "validate_palette.py")
         result = subprocess.run(
             [sys.executable, script,
-             ",".join([wanted["safe"], wanted["warning"], wanted["critical"]]),
-             "--mode", "light", "--surface", "#ffffff"],
+             ",".join([w["safe"], w["warning"], w["critical"]]),
+             "--mode", "dark", "--surface", surface],
             capture_output=True, text=True)
-        assert "RESULT: PASS" in result.stdout, result.stdout
+        return result.stdout
 
-    def test_surfaces_are_light(self, css):
-        """A dark --bg would make every light-ground contrast claim false."""
+    def test_colour_vision_separation_still_passes(self, css):
+        """Blocked must not collapse into monitored for a red-green viewer."""
+        out = self._report(css, "#16181d")
+        line = [ln for ln in out.splitlines() if "CVD separation" in ln]
+        assert line, out
+        assert "PASS" in line[0], out
+
+    def test_normal_vision_and_chroma_still_pass(self, css):
+        out = self._report(css, "#16181d")
+        for check in ("Normal-vision floor", "Chroma floor"):
+            line = [ln for ln in out.splitlines() if check in ln]
+            assert line and "PASS" in line[0], out
+
+    def test_contrast_passes_against_card_and_page(self, css):
+        import re
+        for surface in ("#16181d", "#0e0f13"):
+            out = self._report(css, surface)
+            line = [ln for ln in out.splitlines() if "Contrast vs" in ln]
+            assert line and "PASS" in line[0], out
+
+    def test_lightness_band_is_the_only_documented_exception(self, css):
+        """If anything BEYOND the band starts failing, that is a regression."""
+        import re
+        out = self._report(css, "#16181d")
+        failing = [re.split(r"\s{2,}", ln.strip())[0]
+                   for ln in out.splitlines() if "FAIL" in ln and "RESULT" not in ln]
+        assert failing == ["Lightness band"], (
+            "only the lightness band may fail, and it must be documented in "
+            "styles.css; got: {}\n{}".format(failing, out))
+
+    def test_the_exception_is_documented_in_the_stylesheet(self, css):
+        """A deviation nobody wrote down is indistinguishable from a mistake."""
+        head = css[:4000]
+        assert "Lightness band" in head and "FAIL" in head, (
+            "the band exception must be recorded at the top of styles.css"
+        )
+
+    def test_surfaces_are_dark(self, css):
+        """A light --bg would make every dark-ground contrast claim false."""
         import re
         m = re.search(r"--bg:\s*(#[0-9a-fA-F]{6});", css)
         assert m
         r, g, b = (int(m.group(1)[i:i + 2], 16) for i in (1, 3, 5))
-        assert (r + g + b) / 3 > 200, "the page ground is meant to be light"
+        assert (r + g + b) / 3 < 40, "the page ground is meant to be near-black"
+
+    def test_body_text_is_light_on_that_ground(self, css):
+        import re
+        m = re.search(r"--text:\s*(#[0-9a-fA-F]{6});", css)
+        assert m
+        r, g, b = (int(m.group(1)[i:i + 2], 16) for i in (1, 3, 5))
+        assert (r + g + b) / 3 > 200, "body text must be light on a dark ground"

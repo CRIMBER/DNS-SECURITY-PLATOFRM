@@ -331,7 +331,63 @@ class RiskEngine:
                 "suspicious_tld_dga_bonus",
             )
 
-        # 5. Allowlist ceiling, applied last so it is authoritative.
+        # 5. Corroborated strong evidence sets a floor at the blocking band.
+        #
+        # Fusion is an average, and an average lets a WEAK suspicion score pull
+        # a STRONG one down. apple-id-verify.xyz is the case that exposed it:
+        # the lexical signal reported 85 on four independent findings - brand
+        # impersonation of apple.com, an abuse-heavy TLD, a phishing keyword,
+        # and high entropy - while the DGA model reported 50.7, one thousandth
+        # above the score below which it abstains entirely. Averaging the two
+        # produced 65, and a phishing domain the lexical layer had called at 85
+        # came out as MONITOR: the gateway would have resolved it.
+        #
+        # That is the wrong reading of a suspicion signal. A detector reporting
+        # "moderately suspicious" has not found evidence of SAFETY, and must
+        # not be able to buy a domain out of the blocking band that another
+        # detector independently put it in. The same asymmetry the engine
+        # already applies to abstention - absence of evidence is not evidence
+        # of absence - applies to weak evidence too.
+        #
+        # Two conditions, and the second is what keeps this from becoming "one
+        # signal decides". The signal must reach the blocking band on its own,
+        # AND rest on at least two distinct contributing factors, so a single
+        # heuristic having a bad day cannot force a block. The floor is the
+        # threshold itself, never the signal's own score: this restores the
+        # decision the evidence supports without inventing certainty.
+        #
+        # Deliberately placed BEFORE the allowlist ceiling, which stays last
+        # and authoritative - a trusted domain with an odd lexical shape must
+        # still be capped.
+        rule = self.config.override("corroborated_evidence_floor")
+        if rule.get("enabled", True):
+            floor = float(rule.get("floor", 70))
+            minimum_factors = int(rule.get("min_distinct_factors", 2))
+            if score < floor:
+                for signal in signals:
+                    if not signal.is_informative or signal.score < floor:
+                        continue
+                    distinct = len({
+                        f.code for f in signal.factors if f.contribution
+                    })
+                    if distinct < minimum_factors:
+                        continue
+                    score = move(
+                        floor,
+                        "OVERRIDE_CORROBORATED_FLOOR",
+                        "Corroborated strong evidence floor applied",
+                        Severity.HIGH,
+                        "The {} signal independently reported {:.0f} on {} "
+                        "distinct findings. Weaker suspicion from another "
+                        "detector averaged that below the blocking threshold; "
+                        "a moderate score is not evidence of safety, so the "
+                        "score is restored to {:.0f}.".format(
+                            signal.name, signal.score, distinct, floor),
+                        "corroborated_evidence_floor",
+                    )
+                    break
+
+        # 6. Allowlist ceiling, applied last so it is authoritative.
         rule = self.config.override("ti_trusted_ceiling")
         if rule.get("enabled", True) and ti is not None:
             if ti.metadata.get("verdict") == "TRUSTED" and not exempt_by:

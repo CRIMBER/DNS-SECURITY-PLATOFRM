@@ -35,7 +35,13 @@
       "confidence_very_short": 0.3,
       "shrinkage_length": 10.0,
       "null_finding_confidence": 0.0,
-      "_null_finding_comment": "A DGA score below factor_thresholds.moderate is a NULL FINDING: the model found no algorithmic generation. That is an absence of evidence, not evidence of safety, so the signal abstains (confidence 0.0) and drops out of the weighted average entirely - the same rule already applied to a threat_intel UNKNOWN verdict and a clean lexical result. It previously only reduced confidence, which was insufficient: confidence is a relative weight, so a lone reporting signal sets the score regardless of how little it claims to know."
+      "_null_finding_comment": "A DGA score below factor_thresholds.moderate is a NULL FINDING: the model found no algorithmic generation. That is an absence of evidence, not evidence of safety, so the signal abstains (confidence 0.0) and drops out of the weighted average entirely - the same rule already applied to a threat_intel UNKNOWN verdict and a clean lexical result. It previously only reduced confidence, which was insufficient: confidence is a relative weight, so a lone reporting signal sets the score regardless of how little it claims to know.",
+      "word_composed_abstention": {
+        "enabled": false,
+        "coverage_threshold": 0.5,
+        "description": "When more than this fraction of a label is explained by known words, the DGA model abstains: the label was demonstrably chosen rather than generated, so its character statistics are not evidence of generation.",
+        "_comment": "DEFAULT OFF, AND IT MUST STAY OFF. It fixes the blocking false positive netdna-cdn.com (92/BLOCK -> 0/ALLOW) and strengthens apple-id-verify.xyz (70 -> 85/BLOCK, because the marginal DGA finding that was diluting it abstains). An early measurement claimed it cost no detection; a wider adversarial corpus disproved that. It opens an evasion path: a name whose only suspicion comes from the DGA model, built from words a person chose, loses that suspicion entirely - data-exfil-node.test 40/MONITOR -> 15/ALLOW. Adding malware-operations vocabulary to suspicious_keywords.json gave that name the independent evidence it lacked, but the suspicious_keyword rule caps at 20 points (points_scale 16, max_points 20) so keyword evidence alone cannot reach the MONITOR band at 30. Until an independent signal can carry such a name past 30 on its own, enabling this downgrades an attack into ALLOW. It also moves the behaviour-demo reference value 46 -> 39, decision unchanged. Both costs are pinned in backend/tests/test_word_composed_abstention.py."
+      }
     },
     "factor_thresholds": {
       "high": 0.8,
@@ -148,6 +154,13 @@
       "dga_threshold": 0.8,
       "bonus": 5,
       "description": "A high DGA score on an abuse-heavy TLD is a well-documented combination."
+    },
+    "corroborated_evidence_floor": {
+      "enabled": true,
+      "floor": 70,
+      "min_distinct_factors": 2,
+      "description": "A signal that independently reaches the blocking band on two or more distinct findings sets a floor at that band. Fusion is an average, so a weak suspicion score from another detector could otherwise pull a strong one below the threshold - apple-id-verify.xyz scored lexical 85 on brand impersonation, an abuse-heavy TLD, a phishing keyword and high entropy, and a DGA score of 50.7 averaged it down to 65/MONITOR.",
+      "_comment": "min_distinct_factors is what stops this becoming 'one signal decides': a lone heuristic cannot force a block, only corroborated evidence can. Applied before ti_trusted_ceiling, which remains authoritative."
     }
   },
   "unknown_domain_policy": {

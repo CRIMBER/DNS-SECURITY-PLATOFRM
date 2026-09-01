@@ -129,8 +129,26 @@ class BigramDGADetector(DGADetector):
     # -- core statistic -----------------------------------------------------
 
     def log_likelihood_ratio(self, label: str) -> float:
-        """Mean per-character log-likelihood ratio, legitimate vs uniform."""
-        cleaned = "".join(ch for ch in label.lower() if ch in self._alphabet)
+        """Mean per-character log-likelihood ratio, legitimate vs uniform.
+
+        DIGITS ARE EXCLUDED from the chain. They are already scored twice over
+        - by this model's own ``term_digits`` and by the lexical digit-ratio
+        rule - so letting them into the character chain counted the same
+        evidence a third time, and did it badly: the corpus is built from
+        words, so any digit transition looks maximally improbable regardless
+        of what it means. cdn77 scored z=7.24, as implausible as a real DGA,
+        purely because "n7" and "77" are unseen bigrams.
+
+        Removing them sharpens the signal in both directions. The measure
+        becomes what it claims to be - the plausibility of the LETTER sequence
+        - and the generated names it exists to catch score higher without
+        their digits diluting the letters: p9x2m7k4q1w8z3 goes from z=7.73 to
+        z=10.28, kq3v9z7jx1p8w from 7.93 to 8.36.
+        """
+        cleaned = "".join(
+            ch for ch in label.lower()
+            if ch in self._alphabet and not ch.isdigit()
+        )
         if not cleaned:
             return 0.0
         padded = START + cleaned + END
@@ -247,9 +265,56 @@ class BigramDGADetector(DGADetector):
         # Abstaining removes it from BOTH sums instead, so a null finding
         # neither raises nor lowers the score. A positive finding is untouched
         # and still contributes at full score/confidence/weight.
+        # The reporting bar rises when the evidence is thin. Below
+        # min_confident_length the model already says it is unsure - that is
+        # what confidence_short means - but confidence is only a RELATIVE
+        # weight, so a lone reporting signal sets the fused score no matter
+        # how little it claims to know. scribd.com is the case in point: six
+        # letters, seven transitions, a moderate z of 2.79, and the resulting
+        # 0.58 became the entire 58/MONITOR verdict on an ordinary English-
+        # looking name. On a label that short the model cannot separate a
+        # slightly unusual real word from a generated one, so a MODERATE
+        # finding there is not evidence and it abstains; a STRONG finding
+        # still reports, which is why short random labels are unaffected.
         moderate = float(cfg.get("dga.factor_thresholds.moderate", 0.5))
-        if score < moderate:
+        strong = float(cfg.get("dga.factor_thresholds.high", 0.8))
+        bar = moderate if length >= min_length else strong
+        if score < bar:
             confidence = float(params.get("null_finding_confidence", 0.0))
+
+        # WORD-COMPOSED LABELS: the question is already answered.
+        #
+        # This model asks one thing - "was this label GENERATED rather than
+        # chosen by a person?" - and dictionary coverage answers it directly
+        # and independently of the character statistics. Measured over the
+        # corpus the separation is total: every generated name scores 0.000,
+        # while the legitimate infrastructure names this model misfires on
+        # score 0.375 to 1.000. netdna-cdn.com is 0.667 - "netdna" plus "cdn" -
+        # and was blocked at 92 on a bigram z-score inflated by the hyphen.
+        #
+        # A label that demonstrably decomposes into known words is positive
+        # evidence that it was CHOSEN, so the character-statistics reading is
+        # not evidence of generation and the model abstains rather than
+        # reporting. This is scoped strictly to this model's own question: it
+        # does not touch fusion, enforcement, behavioural, threat-intelligence
+        # or brand evidence, which is what separates it from the blanket DGA
+        # discount rejected in Phase 5E.
+        #
+        # It also costs nothing against word-composed phishing, because the
+        # bigram model never caught those anyway - dictionary-word DGAs are a
+        # documented blind spot of any character model, and names such as
+        # secure-login-bank-verify.tk are carried by keyword, TLD and brand
+        # evidence instead. Measured: unchanged or stronger in every case.
+        rule = params.get("word_composed_abstention") or {}
+        if rule.get("enabled", False) and confidence > 0.0:
+            threshold = float(rule.get("coverage_threshold", 0.5))
+            if features.dictionary_word_coverage > threshold:
+                confidence = float(params.get("null_finding_confidence", 0.0))
+                abstained_as_word_composed = True
+            else:
+                abstained_as_word_composed = False
+        else:
+            abstained_as_word_composed = False
 
         return DGAResult(
             score=score,
@@ -259,6 +324,7 @@ class BigramDGADetector(DGADetector):
                 "bigram_llr": llr,
                 "z_score": z_score,
                 "dictionary_word_coverage": features.dictionary_word_coverage,
+                "word_composed_abstention": abstained_as_word_composed,
                 "digit_ratio": features.digit_ratio,
                 "label_length": float(length),
                 "length_factor": length_factor,

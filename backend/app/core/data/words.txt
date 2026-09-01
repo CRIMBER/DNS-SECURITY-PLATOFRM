@@ -34,3 +34,14 @@ yard year yellow yes yet yield you young your youth
 zebra zero zone zoom
 
 wiki pedia wikipedia stack overflow reddit quora medium github gitlab bitbucket npm pypi docker kernel linux ubuntu debian fedora android chrome firefox safari edge nginx apache django flask react angular python java script node deno rust golang kotlin swift ruby scala haskell mysql sqlite mongo redis kafka nasa isro ieee acm arxiv coursera udemy khan academy edx byju unacademy zomato swiggy ola uber airbnb netflix spotify hotstar jio airtel vodafone bsnl aadhaar pan gst upi rupay visa mastercard amex hdfc icici axis kotak yes union canara indian overseas central baroda punjab maharashtra karnataka kerala tamil telugu hindi marathi bengali gujarati delhi mumbai chennai kolkata bengaluru hyderabad pune ahmedabad jaipur lucknow bhopal patna
+
+# Infrastructure and delivery vocabulary. The list above already carries
+# cloud, edge, cache, host, net, api, npm, node and server, but omitted the
+# tokens that name the delivery tier itself - which is why cdn77, bunnycdn and
+# netdna-cdn read as having no real words in them and scored as generated
+# names. These are morphemes, not domains: any label built from them benefits,
+# whether or not the site behind it has ever been seen.
+cdn dns sdk static proxy repo git auth img www ssl tls vpn cli ftp smtp imap
+mesh relay ingress egress bucket blob queue lambda kube docker registry mirror
+telemetry metrics trace span shard replica cluster nodepool runtime bundler
+assets media thumb avatar embed iframe widget script style font glyph

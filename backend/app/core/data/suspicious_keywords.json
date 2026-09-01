@@ -58,6 +58,17 @@
     "service": 0.15,
     "office": 0.15,
     "bank": 0.35,
-    "pay": 0.2
-  }
+    "pay": 0.2,
+
+    "exfil": 0.95,
+    "botnet": 1.0,
+    "keylog": 0.95,
+    "stealer": 0.85,
+    "rootkit": 1.0,
+    "backdoor": 0.8,
+    "webshell": 0.95,
+    "ransomware": 1.0,
+    "ransom": 0.55
+  },
+  "_comment_operations": "The block above the blank line is credential-harvesting vocabulary: what a victim is shown. The block below it is malware-OPERATIONS vocabulary: what an operator calls their own infrastructure. The corpus had no coverage of the second at all, so a name that states its purpose outright - data-exfil-node, keylogger-panel, ransomware-decrypt - produced no lexical evidence whatsoever and was visible only if some other signal happened to fire. Families covered: data exfiltration (exfil), command and control (botnet), credential theft (keylog), data theft (stealer), persistence (rootkit, backdoor), remote access (webshell, backdoor), payload and extortion (ransomware, ransom). Weights follow the same rule as the phishing block - evidential strength, not severity. Matching is substring, so a token that also occurs inside ordinary English or ordinary brand names is weighted DOWN rather than excluded: 'ransom' is 0.55 because Ransom is a place and a surname, 'stealer' 0.85 and 'backdoor' 0.8 because both are real English compounds, while 'exfil', 'botnet', 'rootkit' and 'webshell' occur in no dictionary word at all. Measured collisions (robotnetwork.com via 'botnet', keylogic.com via 'keylog') reach at most 16 of the 20 available points and stay well inside ALLOW. Deliberately EXCLUDED after measurement: 'malware' moves the protected reference value malware-c2-panel.invalid from 18/ALLOW to 32/MONITOR; 'dropper' and 'payload' changed no malicious decision while costing legitimate names (eyedropper.com, dropper-bottles.com, payloadcms.com). These tokens are NOT added to words.txt - that file answers a different question, 'was this label chosen by a person or generated?', and teaching it this vocabulary measurably WEAKENS detection: data-exfil-node.test falls from 59/MONITOR to 0/ALLOW because the DGA model stops reporting."
 }

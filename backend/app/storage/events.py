@@ -359,8 +359,28 @@ class EventRepository:
         }
 
 
+    # WHAT COUNTS AS AN OBSERVATION
+    #
+    # Every DNS event is one, because the network really did ask again -
+    # repetition is the whole shape of beaconing and must keep counting.
+    #
+    # An ANALYSIS event only counts once per distinct name. Looking a domain
+    # up in the dashboard is an inspection, not traffic, and re-reading the
+    # same row is not new evidence. Counting each repeat let repetition
+    # manufacture behavioural evidence: analysing one unknown domain 25 times
+    # through the API tripped ``query_burst``, and because the burst scores 26
+    # while the domain scored 75, joining the weighted average pulled the
+    # verdict DOWN from BLOCK to MONITOR - so anyone able to get a domain
+    # re-analysed could make it look progressively safer.
+    #
+    # Distinctness, not event type, is what separates the two cases. Fourteen
+    # different subdomains submitted through the API are fourteen genuinely
+    # new observations and still fire subdomain fan-out; the same name
+    # submitted fourteen times is one observation seen fourteen times.
     _HISTORY_COLUMNS = (
-        "COUNT(*) AS total, "
+        "SUM(CASE WHEN event_type = 'dns' THEN 1 ELSE 0 END) "
+        "  + COUNT(DISTINCT CASE WHEN event_type <> 'dns' THEN domain END) "
+        "  AS total, "
         "COUNT(DISTINCT domain) AS distinct_names, "
         "COALESCE(MAX(risk_score), 0) AS max_risk, "
         "COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) AS blocked, "

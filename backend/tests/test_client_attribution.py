@@ -91,14 +91,45 @@ def analyzer(repository):
 
 
 class TestBackwardCompatibility:
-    def test_domain_history_without_client_counts_everything(self, repository):
-        """Today's behaviour, pinned: no client filter, no event_type filter."""
+    def test_domain_history_without_client_spans_every_client(self, repository):
+        """No client filter: the domain-wide slice still crosses all clients.
+
+        This test used to assert that the slice counted every stored row, six
+        of six. That pin was deliberately relaxed in Phase 5C, and the reason
+        is a security property rather than a tidy-up: counting each repeated
+        ANALYSIS row let repetition manufacture behavioural evidence, and
+        because a query burst scores lower than a strong verdict, joining the
+        weighted average pulled BLOCK down to MONITOR. Re-inspecting a name
+        already seen is not new evidence, so an analysis event now counts once
+        per distinct name while every DNS event still counts - beaconing is
+        repetition and must keep counting. See ``_HISTORY_COLUMNS``.
+
+        What this test was really protecting - that the domain-wide slice is
+        not narrowed to one client - is asserted below and is unchanged.
+        """
         seed(repository, "mixed-demo.test", client_address="10.0.0.1", times=2)
         seed(repository, "mixed-demo.test", client_address=None, times=1)
         seed(repository, "mixed-demo.test", as_analysis=True, times=3)
 
         history = repository.domain_history("mixed-demo.test")
-        assert history["total_queries"] == 6
+        # 3 DNS events across two different clients (one of them unrecorded),
+        # plus 3 identical analyses of one name, which are one observation.
+        assert history["total_queries"] == 4
+
+    def test_repeated_analysis_of_one_name_is_one_observation(self, repository):
+        """The idempotency property, at the storage layer."""
+        seed(repository, "repeat-demo.test", as_analysis=True, times=1)
+        once = repository.domain_history("repeat-demo.test")["total_queries"]
+        seed(repository, "repeat-demo.test", as_analysis=True, times=24)
+        many = repository.domain_history("repeat-demo.test")["total_queries"]
+        assert once == many == 1, (
+            "re-analysing the same name must not accumulate history"
+        )
+
+    def test_repeated_dns_queries_still_accumulate(self, repository):
+        """Beaconing is repetition, and repetition is the evidence."""
+        seed(repository, "beacon-demo.test", client_address="10.0.0.9", times=25)
+        assert repository.domain_history("beacon-demo.test")["total_queries"] == 25
 
     def test_positional_window_argument_still_works(self, repository):
         """The one existing call site passes window_minutes; keep it valid."""
